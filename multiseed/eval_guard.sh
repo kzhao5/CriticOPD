@@ -22,7 +22,7 @@ if [ ! -f $CK/actor/huggingface/config.json ] && [ ! -f $CK/huggingface/config.j
   fi
   # 训练链被意外打断(例如节点在启动 2 秒内把任务 root 杀掉):清掉失效的锁,重新提交整条训练链,最多 3 次
   RS=$R/outputs/checkpoints/$RUN/.resubmits; k=$(cat $RS 2>/dev/null || echo 0)
-  if [ $k -lt 3 ]; then
+  if [ $k -lt 6 ]; then
     mkdir -p $R/outputs/checkpoints/$RUN; echo $((k + 1)) > $RS
     for L in $R/outputs/checkpoints/$RUN/.seg*.lock; do
       [ -d "$L" ] || continue
@@ -33,7 +33,7 @@ if [ ! -f $CK/actor/huggingface/config.json ] && [ ! -f $CK/huggingface/config.j
     (cd $R && SIZE=$size ONLY="$m" SEEDS="$seed" bash multiseed/submit.sh) >/dev/null 2>&1
     log TRAIN_RESUBMIT "训练链中断且没有 global_step_$STEP,第 $((k + 1)) 次重新提交"; exit 0
   fi
-  log TRAIN_FAILED "训练任务都已结束,但没有 global_step_$STEP(已重新提交 3 次)"; exit 1
+  log TRAIN_FAILED "训练任务都已结束,但没有 global_step_$STEP(已重新提交 6 次)"; exit 1
 fi
 # SFT 的模型在 global_step_N/huggingface,评测脚本默认读 actor/huggingface
 if [ ! -e $CK/actor/huggingface ] && [ -d $CK/huggingface ]; then
@@ -65,7 +65,7 @@ else:
 PY
 )
 if [[ $CHK == OK* ]]; then log DONE "${CHK#OK }"; exit 0; fi
-if [ $TRY -ge 4 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 4 轮)"; exit 1; fi
+if [ $TRY -ge 8 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 8 轮)"; exit 1; fi   # 集群会在启动 2 秒内 root 杀掉作业,多给几轮
 
 # 3) 补交缺的分片
 OUT=$(cd $R && RUN=$RUN STEP=$STEP TAG=$TAG bash criticopd/submit_unified.sh 2>&1)

@@ -14,12 +14,12 @@ TPQ=$PWD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet
 DPQ=$PWD/outputs/offline_data/trd_pt17b/trd_trajectories.parquet
 DAPO=/home/kzhao2/OPD/datasets/dapo-math-17k.parquet
 REG=multiseed/jobs.tsv
-PARTS=("--partition=cs --qos=cs --exclude=cs-1-3" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5,dw-1-3")   # cs-1-3、dw-1-3 在 2026-10-03 把 35 个任务在 2 秒内 root 杀掉
+PARTS=("--partition=cs --qos=cs" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5")   # cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
 COMMON="--parsable --gres=gpu:4 --cpus-per-task=32 --mem=350G --time=${SEG_TIME:-23:30:00}"   # 运行中计费额度按「计费 x 申请时长」算,短任务用 SEG_TIME 缩短
 STUDENT=/home/kzhao2/OPD/model/Qwen3-1.7B; TP=""          # TP:0.6B 的任务名前缀,避免与 1.7B 重名
 if [ "$SIZE" = 0.6B ]; then
   STUDENT=/home/kzhao2/OPD/model/Qwen3-0.6B; TP=6
-  PARTS=("--partition=cs2 --qos=cs" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1")
+  PARTS=("--partition=cs2,cs --qos=cs" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1")
   DPQ=$PWD/outputs/offline_data/trd_pt06b/trd_trajectories.parquet      # 0.6B 学生自己的改写数据
 fi
 
