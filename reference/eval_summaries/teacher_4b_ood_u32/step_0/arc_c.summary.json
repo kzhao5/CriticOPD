@@ -1,0 +1,12 @@
+{
+  "tag": "arc_c",
+  "model": "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507",
+  "bench": "arc_c",
+  "n_problems": 1172,
+  "n_samples": 4,
+  "avg@k": 0.949445,
+  "pass@1": 0.948805,
+  "pass@k": 0.966724,
+  "wall_seconds": 791.7156763076782,
+  "n_shards": 1
+}

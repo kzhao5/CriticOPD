@@ -1,0 +1,49 @@
+{
+  "tag": "math500",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt06b/global_step_139/actor/huggingface",
+  "bench": "math500",
+  "n_problems": 500,
+  "n_samples": 8,
+  "avg@k": 0.58325,
+  "pass@1": 0.594,
+  "pass@k": 0.854,
+  "wall_seconds": 11784.084906101227,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 500,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "math500",
+      "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt06b/global_step_139/actor/huggingface",
+      "bench": "math500",
+      "n_problems": 500,
+      "n_samples": 8,
+      "avg@k": 0.58325,
+      "pass@1": 0.594,
+      "pass@k": 0.854,
+      "wall_seconds": 11784.084906101227,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 500,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "tag": "math500",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4GTV_pt17b/global_step_60/actor/huggingface",
+  "bench": "math500",
+  "n_problems": 500,
+  "n_samples": 8,
+  "avg@k": 0.86275,
+  "pass@1": 0.862,
+  "pass@k": 0.966,
+  "wall_seconds": 542.0162358283997,
+  "n_shards": 2
+}

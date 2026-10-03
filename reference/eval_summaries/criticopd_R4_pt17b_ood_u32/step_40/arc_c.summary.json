@@ -1,0 +1,12 @@
+{
+  "tag": "arc_c",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4_pt17b/global_step_40/actor/huggingface",
+  "bench": "arc_c",
+  "n_problems": 1172,
+  "n_samples": 4,
+  "avg@k": 0.867747,
+  "pass@1": 0.872867,
+  "pass@k": 0.932594,
+  "wall_seconds": 162.2713439464569,
+  "n_shards": 1
+}

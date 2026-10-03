@@ -1,0 +1,49 @@
+{
+  "tag": "minerva",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/skd_pt06b/global_step_40/actor/huggingface",
+  "bench": "minerva",
+  "n_problems": 272,
+  "n_samples": 8,
+  "avg@k": 0.18979779411764705,
+  "pass@1": 0.23529411764705882,
+  "pass@k": 0.3897058823529412,
+  "wall_seconds": 8407.088217258453,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 272,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "minerva",
+      "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/skd_pt06b/global_step_40/actor/huggingface",
+      "bench": "minerva",
+      "n_problems": 272,
+      "n_samples": 8,
+      "avg@k": 0.18979779411764705,
+      "pass@1": 0.23529411764705882,
+      "pass@k": 0.3897058823529412,
+      "wall_seconds": 8407.088217258453,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 272,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

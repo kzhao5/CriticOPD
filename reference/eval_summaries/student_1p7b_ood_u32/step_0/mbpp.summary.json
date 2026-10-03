@@ -1,0 +1,49 @@
+{
+  "tag": "mbpp",
+  "model": "/home/kzhao2/OPD/model/Qwen3-1.7B",
+  "bench": "mbpp",
+  "n_problems": 378,
+  "n_samples": 4,
+  "avg@k": 0.0,
+  "pass@1": 0.0,
+  "pass@k": 0.0,
+  "wall_seconds": 17.05398941040039,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 378,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "mbpp",
+      "model": "/home/kzhao2/OPD/model/Qwen3-1.7B",
+      "bench": "mbpp",
+      "n_problems": 378,
+      "n_samples": 4,
+      "avg@k": 0.0,
+      "pass@1": 0.0,
+      "pass@k": 0.0,
+      "wall_seconds": 17.05398941040039,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 378,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

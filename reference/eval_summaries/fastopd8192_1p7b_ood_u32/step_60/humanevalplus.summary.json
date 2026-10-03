@@ -1,0 +1,12 @@
+{
+  "tag": "humanevalplus",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/fastopd8192_1p7b/global_step_60/actor/huggingface",
+  "bench": "humanevalplus",
+  "n_problems": 164,
+  "n_samples": 4,
+  "avg@k": 0.0,
+  "pass@1": 0.0,
+  "pass@k": 0.0,
+  "wall_seconds": 63.042099475860596,
+  "n_shards": 1
+}

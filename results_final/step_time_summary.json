@@ -1,0 +1,30 @@
+{
+ "SFT": {
+  "seeds": 1,
+  "steps": 8,
+  "gpu_h_total_mean": 0.9688888888888889,
+  "gpu_h_total_sd": 0.0,
+  "target_step": 40
+ },
+ "GRPO": {
+  "seeds": 1,
+  "steps": 119,
+  "gpu_h_total_mean": 119.15638267853156,
+  "gpu_h_total_sd": 0.0,
+  "target_step": 120
+ },
+ "SKD": {
+  "seeds": 1,
+  "steps": 120,
+  "gpu_h_total_mean": 119.84092125458733,
+  "gpu_h_total_sd": 0.0,
+  "target_step": 120
+ },
+ "CriticOPD": {
+  "seeds": 1,
+  "steps": 40,
+  "gpu_h_total_mean": 22.206677303206718,
+  "gpu_h_total_sd": 0.0,
+  "target_step": 40
+ }
+}

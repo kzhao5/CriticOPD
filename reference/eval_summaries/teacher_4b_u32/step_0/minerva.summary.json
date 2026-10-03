@@ -1,0 +1,12 @@
+{
+  "tag": "minerva",
+  "model": "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507",
+  "bench": "minerva",
+  "n_problems": 272,
+  "n_samples": 8,
+  "avg@k": 0.455423,
+  "pass@1": 0.4375,
+  "pass@k": 0.555147,
+  "wall_seconds": 2205.515009880066,
+  "n_shards": 1
+}

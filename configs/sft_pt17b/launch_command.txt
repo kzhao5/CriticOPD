@@ -1,0 +1,50 @@
+# 来源: pb_sft_pt17b_s1_13772584.log(bash -x 展开后的实际命令)
+torchrun --standalone --nnodes=1 --nproc-per-node=4 -m verl.trainer.sft_trainer data.train_files=/home/kzhao2/Relay-OPD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet data.val_files=null data.train_batch_size=128 data.pad_mode=no_padding data.truncation=error data.use_dynamic_bsz=True data.max_token_len_per_gpu=24576 data.max_length=18433 +data.prompt_token_key=prompt_token_ids +data.response_token_key=response_token_ids data.custom_cls.path=/home/kzhao2/Relay-OPD/relay-opd/opd/data/tokenized_sft_dataset.py data.custom_cls.name=TokenizedSFTDataset data.messages_key=messages data.enable_thinking_key=enable_thinking data.enable_thinking_default=False data.ignore_input_ids_mismatch=True data.num_workers=8 model=hf_model model.path=/home/kzhao2/OPD/model/Qwen3-1.7B model.use_remove_padding=True model.enable_gradient_checkpointing=True optim=fsdp optim.lr=1e-6 optim.lr_scheduler_type=constant optim.lr_warmup_steps_ratio=0.0 engine=fsdp engine.strategy=fsdp engine.fsdp_size=-1 engine.ulysses_sequence_parallel_size=2 engine.param_offload=True engine.optimizer_offload=True 'trainer.logger=['\''console'\'']' trainer.project_name=sft trainer.experiment_name=sft_pt17b trainer.total_epochs=1 trainer.save_freq=20 trainer.test_freq=-1 trainer.default_local_dir=/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt17b trainer.resume_mode=disable 'checkpoint.save_contents=[model,optimizer,extra,hf_model]'
+
+# 每个参数一行:
+torchrun \
+    --standalone \
+    --nnodes=1 \
+    --nproc-per-node=4 \
+    -m \
+    verl.trainer.sft_trainer \
+    data.train_files=/home/kzhao2/Relay-OPD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet \
+    data.val_files=null \
+    data.train_batch_size=128 \
+    data.pad_mode=no_padding \
+    data.truncation=error \
+    data.use_dynamic_bsz=True \
+    data.max_token_len_per_gpu=24576 \
+    data.max_length=18433 \
+    +data.prompt_token_key=prompt_token_ids \
+    +data.response_token_key=response_token_ids \
+    data.custom_cls.path=/home/kzhao2/Relay-OPD/relay-opd/opd/data/tokenized_sft_dataset.py \
+    data.custom_cls.name=TokenizedSFTDataset \
+    data.messages_key=messages \
+    data.enable_thinking_key=enable_thinking \
+    data.enable_thinking_default=False \
+    data.ignore_input_ids_mismatch=True \
+    data.num_workers=8 \
+    model=hf_model \
+    model.path=/home/kzhao2/OPD/model/Qwen3-1.7B \
+    model.use_remove_padding=True \
+    model.enable_gradient_checkpointing=True \
+    optim=fsdp \
+    optim.lr=1e-6 \
+    optim.lr_scheduler_type=constant \
+    optim.lr_warmup_steps_ratio=0.0 \
+    engine=fsdp \
+    engine.strategy=fsdp \
+    engine.fsdp_size=-1 \
+    engine.ulysses_sequence_parallel_size=2 \
+    engine.param_offload=True \
+    engine.optimizer_offload=True \
+    'trainer.logger=['\''console'\'']' \
+    trainer.project_name=sft \
+    trainer.experiment_name=sft_pt17b \
+    trainer.total_epochs=1 \
+    trainer.save_freq=20 \
+    trainer.test_freq=-1 \
+    trainer.default_local_dir=/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt17b \
+    trainer.resume_mode=disable \
+    'checkpoint.save_contents=[model,optimizer,extra,hf_model]'

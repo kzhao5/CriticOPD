@@ -1,0 +1,1800 @@
+diff --git a/relay-opd/opd/data/generate_teacher_trajectories.py b/relay-opd/opd/data/generate_teacher_trajectories.py
+index 5e98cd7..ca1266c 100644
+--- a/relay-opd/opd/data/generate_teacher_trajectories.py
++++ b/relay-opd/opd/data/generate_teacher_trajectories.py
+@@ -3,6 +3,7 @@
+ 
+ import argparse
+ import json
++import os
+ import time
+ from pathlib import Path
+ 
+@@ -10,6 +11,11 @@ import pandas as pd
+ from transformers import AutoTokenizer
+ from vllm import LLM, SamplingParams
+ 
++# Base students (Qwen3-*-Base) declare only <|endoftext|> as EOS, so vLLM would keep generating past
++# <|im_end|>. GEN_STOP_TOKEN_IDS="151643;151645" matches the rollout / eval stop set of the base-student
++# table. Unset = original behaviour.
++_STOP_TOKEN_IDS = [int(x) for x in os.environ.get("GEN_STOP_TOKEN_IDS", "").replace(";", ",").split(",") if x.strip()] or None
++
+ 
+ def _token_ids(template_output) -> list[int]:
+     if hasattr(template_output, "data") and "input_ids" in template_output:
+@@ -121,6 +127,7 @@ def main() -> None:
+             temperature=args.temperature,
+             top_p=args.top_p,
+             seed=args.seed,
++            stop_token_ids=_STOP_TOKEN_IDS,
+         )
+         for _ in rows
+     ]
+diff --git a/relay-opd/opd/data/generate_trd_trajectories.py b/relay-opd/opd/data/generate_trd_trajectories.py
+index 8034ecf..95dbe39 100644
+--- a/relay-opd/opd/data/generate_trd_trajectories.py
++++ b/relay-opd/opd/data/generate_trd_trajectories.py
+@@ -3,6 +3,7 @@
+ 
+ import argparse
+ import json
++import os
+ import time
+ from pathlib import Path
+ 
+@@ -10,6 +11,11 @@ import pandas as pd
+ from transformers import AutoTokenizer
+ from vllm import LLM, SamplingParams
+ 
++# Base students (Qwen3-*-Base) declare only <|endoftext|> as EOS, so vLLM would keep generating past
++# <|im_end|>. GEN_STOP_TOKEN_IDS="151643;151645" matches the rollout / eval stop set of the base-student
++# table. Unset = original behaviour.
++_STOP_TOKEN_IDS = [int(x) for x in os.environ.get("GEN_STOP_TOKEN_IDS", "").replace(";", ",").split(",") if x.strip()] or None
++
+ 
+ DEFAULT_SYSTEM = "Please reason step by step, and put your final answer within \\boxed{}."
+ 
+@@ -214,6 +220,7 @@ def main() -> None:
+             temperature=args.temperature,
+             top_p=args.top_p,
+             seed=args.seed,
++            stop_token_ids=_STOP_TOKEN_IDS,
+         )
+         for _ in rows
+     ]
+diff --git a/relay-opd/opd/eval/math_benchmarks.py b/relay-opd/opd/eval/math_benchmarks.py
+index 4c7aa2d..b4fc3d2 100644
+--- a/relay-opd/opd/eval/math_benchmarks.py
++++ b/relay-opd/opd/eval/math_benchmarks.py
+@@ -57,14 +57,71 @@ BENCH_PATHS = {
+     "minervamath": "minervamath.parquet",
+     "gpqa": "gpqa.parquet",
+     "gpqa_diamond": "gpqa_diamond.parquet",
++    "gpqa_diamond_mini": "gpqa_diamond_mini.parquet",
++    "mmlu_pro": "mmlu_pro.parquet",
++    "mmlu_pro_mini": "mmlu_pro_mini.parquet",
++    "mmlu_pro_trunc_gatedB": "mmlu_pro_trunc_gatedB.parquet",
++    "mmlu_pro_trunc_relay": "mmlu_pro_trunc_relay.parquet",
++    "mmlu_pro_trunc_fastopd": "mmlu_pro_trunc_fastopd.parquet",
++    "mmlu_pro_trunc_opd": "mmlu_pro_trunc_opd.parquet",
++    "mmlu_pro_trunc_gatedB60": "mmlu_pro_trunc_gatedB60.parquet",
++    "mmlu_pro_trunc_student": "mmlu_pro_trunc_student.parquet",
++    "mmlu_pro_trunc_teacher": "mmlu_pro_trunc_teacher.parquet",
++    "humanevalplus": "humanevalplus.parquet",
++    "lcb": "lcb.parquet",
++    "lcb_trunc_opd": "lcb_trunc_opd.parquet",
+     "hmmt_feb_2026": "hmmt_feb_2026.parquet",
+     "hmmt_nov_2025": "hmmt_nov_2025.parquet",
+     "dapo128": "dapo128.parquet",
++    # OOD suite added 2026-09-27 (prep: newbench/prep_ood.py)
++    "mmlu": "mmlu.parquet",
++    "mmlu_mini": "mmlu_mini.parquet",
++    "mmlu_pro_2k": "mmlu_pro_2k.parquet",
++    "arc_c": "arc_c.parquet",
++    "obqa": "obqa.parquet",
++    "mbpp": "mbpp.parquet",
+ }
+ 
+ 
++import re as _re
++_EVAL_STOP_TOKEN_IDS = [int(x) for x in os.environ.get("EVAL_STOP_TOKEN_IDS", "").replace(";", ",").split(",") if x.strip()] or None
++# Multiple-choice benches: graded by extracted option letter, not math-verify.
++MC_BENCHES = {"mmlu_pro_trunc_gatedB60", "mmlu_pro_trunc_student", "gpqa", "gpqa_diamond", "gpqa_diamond_mini",
++              "mmlu_pro", "mmlu_pro_mini",
++              "mmlu_pro_trunc_opd", "mmlu_pro_trunc_fastopd",
++              "mmlu_pro_trunc_relay", "mmlu_pro_trunc_gatedB",
++              "mmlu_pro_trunc_teacher",
++              "mmlu", "mmlu_mini", "mmlu_pro_2k", "arc_c", "obqa"}
++
++
++def grade_mc_answer(resp, gt_answer):
++    """Extract the chosen option letter (A-J) from a response and compare to gt."""
++    if gt_answer is None:
++        return False
++    gt = str(gt_answer).strip().upper()[:1]
++    if not gt:
++        return False
++    # priority: last \boxed{X} > "(final )answer/option is/: **X**" > last "(X)"
++    m = _re.findall(r"\\boxed\{\s*\(?\s*([A-Ja-j])\s*\)?\s*\}", resp)
++    if not m:
++        m = _re.findall(
++            r"(?:final\s+answer|correct\s+answer|correct\s+option|answer|option|choice)"
++            r"\b[\s:*]*(?:is|=)?[\s:*]*\(?\s*([A-Ja-j])\b",
++            resp, _re.IGNORECASE)
++    if not m:
++        m = _re.findall(r"\(\s*([A-Ja-j])\s*\)", resp)
++    return bool(m) and m[-1].upper() == gt
++
++
++CODE_BENCHES = {"humanevalplus", "lcb", "lcb_trunc_opd", "mbpp"}  # code benches: not graded here; scored by codeeval env
++
++
+ def grade_math_answer(resp, gt_answer, bench):
+     """Return whether a response matches the benchmark answer."""
++    if bench in CODE_BENCHES:
++        return False  # scored separately
++    if bench in MC_BENCHES:
++        return grade_mc_answer(resp, gt_answer)
+     try:
+         if bench == "olympiad":
+             if isinstance(gt_answer, list) and len(gt_answer) > 0:
+@@ -388,6 +445,7 @@ def run_one_bench(args, llm, tok, spec_config, bench, n_samples):
+     # yet reproducible (replica k of every problem uses base+k).
+     sp_list = [
+         SamplingParams(
++            stop_token_ids=_EVAL_STOP_TOKEN_IDS,
+             max_tokens=args.max_new, temperature=args.temperature,
+             top_p=args.top_p, seed=args.seed + sample_idx_map[i],
+         )
+@@ -656,6 +714,25 @@ def main():
+     for bench, n_samples in zip(bench_list, ns_list):
+         run_one_bench(args, llm, tok, spec_config, bench, n_samples)
+ 
++    # 2026-09-05: vLLM EngineCore 在解释器退出(atexit 清理)时反复卡在 futex_wait, 让 job 挂 4-9h 占满整卡.
++    # 结果已全部落盘(每个 bench 的 jsonl+summary 在 run_one_bench 内写完), 这里主动杀掉子进程树后硬退出.
++    print("[exit] all benches done; killing engine children and hard-exiting", flush=True)
++    import sys as _sys, os as _os
++    _sys.stdout.flush(); _sys.stderr.flush()
++    try:
++        import psutil as _ps
++        kids = _ps.Process().children(recursive=True)
++        for k in kids:
++            try: k.terminate()
++            except Exception: pass
++        _ps.wait_procs(kids, timeout=15)
++        for k in kids:
++            try: k.kill()
++            except Exception: pass
++    except Exception as e:
++        print(f"[exit] child cleanup error: {e}", flush=True)
++    _os._exit(0)
++
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/relay-opd/opd/patches/vllm/speculative_decode.py b/relay-opd/opd/patches/vllm/speculative_decode.py
+index 993596e..8764d76 100644
+--- a/relay-opd/opd/patches/vllm/speculative_decode.py
++++ b/relay-opd/opd/patches/vllm/speculative_decode.py
+@@ -35,6 +35,17 @@ _TAKEOVER_PARAGRAPHS_REMAINING: dict[str, int] = {}
+ _COMPLETED_TAKEOVERS: dict[str, int] = {}
+ _PARAGRAPH_BOUNDARY_IDS_CACHE: dict[str, torch.Tensor] = {}
+ _INTERNAL_STOP_ID_CACHE: dict[str, int | None] = {}
++# gated-B competence gate: running teacher prefix-NLL per trajectory (keyed by ext rid).
++_TEACHER_PREFIX_NLL_SUM: dict[str, float] = {}
++_TEACHER_PREFIX_TOK: dict[str, int] = {}
++_GATE_DIAG_CALLS = 0  # throttle counter for the gate diagnostic print
++# distributional trigger (OPD-yyx-faithful): running current-segment KL(student||teacher)
++# per trajectory; reset at each \n\n paragraph boundary. Replaces the lexical reflection trigger.
++_SEG_KL_SUM: dict[str, float] = {}
++_SEG_KL_CNT: dict[str, int] = {}
++_SEG_ENT_SUM: dict[str, float] = {}  # DTV-Relay 4: running student entropy per segment (annealing)
++_SEG_TENT_SUM: dict[str, float] = {}  # entropygap: running TEACHER entropy per segment (value-of-information)
++_TRIG_DIAG_CALLS = 0
+ 
+ _RANDOM_SUFFIX_RE = re.compile(r"-[0-9a-f]{8}$")
+ 
+@@ -80,6 +91,7 @@ def _send_mask_chunk_ipc(
+     position_chunk: list[int] | None = None,
+     action_token_chunk: list[int] | None = None,
+     teacher_action_logp_chunk: list[float] | None = None,
++    stop_logp_chunk: list[float] | None = None,
+ ) -> None:
+     """Send emitted-token/mask events to the server process via Unix datagram."""
+     global _MASK_IPC_SOCK
+@@ -91,6 +103,7 @@ def _send_mask_chunk_ipc(
+         or len(position_chunk) != len(mask_chunk)
+         or (action_token_chunk is not None and len(action_token_chunk) != len(mask_chunk))
+         or (teacher_action_logp_chunk is not None and len(teacher_action_logp_chunk) != len(mask_chunk))
++        or (stop_logp_chunk is not None and len(stop_logp_chunk) != len(mask_chunk))
+     ):
+         raise RuntimeError(
+             "malformed OPD mask IPC chunk: "
+@@ -106,7 +119,16 @@ def _send_mask_chunk_ipc(
+     mask_bytes = bytes(1 if x else 0 for x in mask_chunk)
+     token_bytes = struct.pack(f"!{n}i", *[int(x) for x in token_chunk])
+     position_bytes = struct.pack(f"!{n}i", *[int(x) for x in position_chunk])
+-    if action_token_chunk is not None and teacher_action_logp_chunk is not None:
++    if stop_logp_chunk is not None:
++        # OPD4 = OPD2 fields + n float32 teacher log p(STOP) (NaN where the token is not terminal)
++        #        + uint8 has_actions [+ n int32 actions + n float32 teacher logp(action)].
++        stop_bytes = struct.pack(f"!{n}f", *[float(x) for x in stop_logp_chunk])
++        has_actions = action_token_chunk is not None and teacher_action_logp_chunk is not None
++        body = b"OPD4" + bytes([n]) + mask_bytes + token_bytes + position_bytes + stop_bytes + bytes([1 if has_actions else 0])
++        if has_actions:
++            body += struct.pack(f"!{n}i", *[int(x) for x in action_token_chunk])
++            body += struct.pack(f"!{n}f", *[float(x) for x in teacher_action_logp_chunk])
++    elif action_token_chunk is not None and teacher_action_logp_chunk is not None:
+         action_bytes = struct.pack(f"!{n}i", *[int(x) for x in action_token_chunk])
+         action_logp_bytes = struct.pack(f"!{n}f", *[float(x) for x in teacher_action_logp_chunk])
+         body = b"OPD3" + bytes([n]) + mask_bytes + token_bytes + position_bytes + action_bytes + action_logp_bytes
+@@ -494,7 +516,7 @@ def _get_response_base_positions(sampling_metadata: Any, batch_size: int) -> lis
+ def _get_pending_mask_rows(sampling_metadata: Any, batch_size: int) -> list[dict[str, list[int] | list[bool] | list[float]]]:
+     pending = getattr(sampling_metadata, "verl_opd_pending_mask_rows", None)
+     if pending is None or len(pending) < batch_size:
+-        pending = [{"mask": [], "tokens": [], "actions": [], "teacher_action_logps": []} for _ in range(batch_size)]
++        pending = [{"mask": [], "tokens": [], "actions": [], "teacher_action_logps": [], "stop_logps": []} for _ in range(batch_size)]
+         sampling_metadata.verl_opd_pending_mask_rows = pending
+     return pending
+ 
+@@ -512,6 +534,7 @@ def _record_token_source_events(
+     action_token_by_output: torch.Tensor | None = None,
+     teacher_action_logp_by_output: torch.Tensor | None = None,
+     valid_vocab_size: int | None = None,
++    stop_logp_by_output: torch.Tensor | None = None,
+ ) -> None:
+     """Record every emitted token in a speculative chunk.
+ 
+@@ -551,6 +574,7 @@ def _record_token_source_events(
+     action_logp_cpu = (
+         teacher_action_logp_by_output.detach().cpu() if teacher_action_logp_by_output is not None else None
+     )
++    stop_logp_cpu = stop_logp_by_output.detach().cpu() if stop_logp_by_output is not None else None
+     base_positions = _get_response_base_positions(sampling_metadata, batch_size)
+     use_ipc = bool(os.environ.get("VERL_OPD_MASK_IPC_SOCKET"))
+     for i in range(batch_size):
+@@ -566,6 +590,7 @@ def _record_token_source_events(
+         token_chunk: list[int] = []
+         action_chunk: list[int] | None = [] if action_cpu is not None else None
+         action_logp_chunk: list[float] | None = [] if action_logp_cpu is not None else None
++        stop_logp_chunk: list[float] | None = [] if stop_logp_cpu is not None else None
+         position_chunk: list[int] | None = [] if base_positions is not None else None
+         for pos in positions:
+             tok = int(output_cpu[i, pos])
+@@ -578,6 +603,8 @@ def _record_token_source_events(
+                 action_chunk.append(int(action_cpu[i, pos]))
+             if action_logp_chunk is not None:
+                 action_logp_chunk.append(float(action_logp_cpu[i, pos]))
++            if stop_logp_chunk is not None:
++                stop_logp_chunk.append(float(stop_logp_cpu[i, pos]))
+             if position_chunk is not None:
+                 position_chunk.append(int(response_pos))
+         if not token_chunk:
+@@ -591,6 +618,8 @@ def _record_token_source_events(
+                 pending_rows[i]["actions"].extend(action_chunk)
+             if action_logp_chunk is not None:
+                 pending_rows[i]["teacher_action_logps"].extend(action_logp_chunk)
++            if stop_logp_chunk is not None:
++                pending_rows[i].setdefault("stop_logps", []).extend(stop_logp_chunk)
+         else:
+             _TEACHER_MASK_BY_REQUEST_ID.setdefault(external_rid, []).extend(mask_chunk)
+             _TOKEN_EVENTS_BY_REQUEST_ID.setdefault(external_rid, []).extend(token_chunk)
+@@ -661,6 +690,102 @@ def _request_layout(
+ 
+ # ---- Reflection-token resolution ----
+ 
++_SEMANTIC_EOS_IDS_CACHE: dict[str, torch.Tensor] = {}
++
++
++def _semantic_eos_enabled() -> bool:
++    """Semantic EOS class export (Lucid-OPD EOS fix): RELAY_OPD_SEMANTIC_EOS=1."""
++    return _flag("RELAY_OPD_SEMANTIC_EOS", False)
++
++
++def _get_semantic_eos_ids(device: torch.device) -> torch.Tensor:
++    """Terminal token set E (task-equivalent stop tokens) as a long tensor.
++
++    Source: RELAY_OPD_SEMANTIC_EOS_IDS="a,b" (set by train.sh from the student generation_config);
++    fallback: generation_config.eos_token_id + tokenizer.eos_token_id of VERL_OPD_TOKENIZER_PATH.
++    """
++    env_val = os.environ.get("RELAY_OPD_SEMANTIC_EOS_IDS", "").strip()
++    cache_key = f"{device}:{env_val}"
++    cached = _SEMANTIC_EOS_IDS_CACHE.get(cache_key)
++    if cached is not None:
++        return cached
++    ids: list[int] = []
++    if env_val:
++        ids = sorted({int(x) for x in env_val.replace(";", ",").split(",") if x.strip()})
++    else:
++        tok_path = os.environ.get("VERL_OPD_TOKENIZER_PATH") or os.environ.get("STUDENT_MODEL")
++        if tok_path:
++            try:
++                from transformers import AutoTokenizer, GenerationConfig
++
++                gc = GenerationConfig.from_pretrained(tok_path)
++                eos = gc.eos_token_id
++                ids += [int(eos)] if isinstance(eos, int) else [int(x) for x in (eos or [])]
++                tok = AutoTokenizer.from_pretrained(tok_path, trust_remote_code=True)
++                if tok.eos_token_id is not None:
++                    ids.append(int(tok.eos_token_id))
++            except Exception:
++                logger.exception("[opd-rollout] failed to resolve semantic EOS ids from %s", tok_path)
++        ids = sorted(set(ids))
++    tensor = torch.tensor(ids, dtype=torch.long, device=device)
++    _SEMANTIC_EOS_IDS_CACHE[cache_key] = tensor
++    logger.warning("[opd-rollout] semantic EOS class ids=%s", ids)
++    return tensor
++
++
++def _compute_semantic_eos_export(
++    output: torch.Tensor,
++    target_logits: torch.Tensor,
++    draft_probs: torch.Tensor | None,
++    req_ids: torch.Tensor,
++    pos_in_req: torch.Tensor,
++    valid_pos: torch.Tensor,
++    valid_draft: torch.Tensor,
++    batch_size: int,
++    vocab_size: int,
++    device: torch.device,
++) -> torch.Tensor:
++    """Teacher log p(STOP) at every emitted position whose token is a terminal token.
++
++    Uses the speculative *target* (teacher) logits of that position: full-vocab log_softmax then
++    logsumexp over E. NaN elsewhere (the loss keeps the per-token teacher log-prob there). Also
++    accumulates rollout diagnostics (which EOS was emitted, student/teacher stop mass).
++    """
++    stop_logp_by_output = torch.full(output.shape, float("nan"), dtype=torch.float32, device=device)
++    eos_ids = _get_semantic_eos_ids(device)
++    if eos_ids.numel() == 0:
++        return stop_logp_by_output
++    valid = (
++        valid_pos & valid_draft
++        & (req_ids >= 0) & (req_ids < batch_size)
++        & (pos_in_req >= 0) & (pos_in_req < output.shape[1])
++    )
++    if not valid.any():
++        return stop_logp_by_output
++    idx = torch.nonzero(valid, as_tuple=False).flatten()
++    emitted = output[req_ids[idx], pos_in_req[idx]].long()
++    is_eos = emitted.ge(0) & emitted.ne(PLACEHOLDER_TOKEN_ID) & torch.isin(emitted, eos_ids)
++    if not is_eos.any():
++        return stop_logp_by_output
++    rows = idx[is_eos]
++    emitted_e = emitted[is_eos]
++    t_lp = target_logits[rows].float().log_softmax(dim=-1)
++    t_stop = torch.logsumexp(t_lp.index_select(1, eos_ids), dim=-1)
++    stop_logp_by_output[req_ids[rows], pos_in_req[rows]] = t_stop
++    _stats_add("semantic_eos_positions", int(rows.numel()), device=device)
++    _stats_add("semantic_eos_teacher_p_stop_sum", t_stop.exp(), device=device)
++    _stats_add(
++        "semantic_eos_teacher_p_emitted_sum", t_lp.gather(1, emitted_e[:, None]).squeeze(1).exp(), device=device
++    )
++    if draft_probs is not None and draft_probs.shape[0] >= int(rows.max().item()) + 1:
++        s_p = draft_probs[rows].float()
++        _stats_add("semantic_eos_student_p_stop_sum", s_p.index_select(1, eos_ids).sum(dim=-1), device=device)
++        _stats_add("semantic_eos_student_p_emitted_sum", s_p.gather(1, emitted_e[:, None]).squeeze(1), device=device)
++    for e in eos_ids.tolist():
++        _stats_add(f"semantic_eos_emit_{e}", emitted_e.eq(e), device=device)
++    return stop_logp_by_output
++
++
+ _REFLECTION_TOKEN_IDS_CACHE: dict[str, torch.Tensor] = {}
+ _REFLECTION_TOKENS_LOGGED = False
+ 
+@@ -959,6 +1084,41 @@ def _relay_opd_rejection_sample(
+     max_takeover_tokens = int(os.environ.get("RELAY_OPD_MAX_TAKEOVER_TOKENS", "256"))
+     paragraphs_per_takeover = int(os.environ.get("RELAY_OPD_PARAGRAPHS_PER_TAKEOVER", "3"))
+     max_takeovers = _int("RELAY_OPD_MAX_TAKEOVERS", 2 if takeover_enabled else 0)
++    # gated-B competence gate threshold tau in teacher prefix mean-NLL units (PPL ~= exp(tau)).
++    # <=0 disables the gate (falls back to plain Relay-OPD trigger).
++    teacher_ppl_gate_nll = _float("RELAY_OPD_TEACHER_PPL_GATE", 0.0)
++    # gated-B gate mode: "v1" = prefix-NLL threshold; "v2" = Hellinger^2 + linear boundary;
++    # "v3" = Hellinger^2 + STEP gate: [prefix_nll < N_STAR] AND [h2 > KAPPA] (see
++    # GatedB_v3 spec). v3 is the degree-metric-upgraded v1 (KL->Hellinger, PPL-thresh->nll-step).
++    gate_mode = os.environ.get("RELAY_OPD_GATE_MODE", "v1").strip().lower()
++    v2_A = _float("RELAY_OPD_V2_A", 0.5)
++    v2_B = _float("RELAY_OPD_V2_B", 0.0)
++    v2_kappa = _float("RELAY_OPD_V2_KAPPA", 0.0)
++    # v3 step gate thresholds. N_STAR in teacher prefix mean-NLL nats (4.6 ~= PPL 100);
++    # KAPPA in Hellinger^2 units. Set N_STAR=+inf (large) for the v3-noGate ablation.
++    v3_n_star = _float("RELAY_OPD_V3_N_STAR", 4.6)
++    v3_kappa = _float("RELAY_OPD_V3_KAPPA", 0.02)
++    _gate_on = (teacher_ppl_gate_nll > 0.0) or (gate_mode == "v2") or (gate_mode == "v3")
++    # trigger mode: "lexical" (Relay-OPD, reflection token) or "distributional" (OPD-yyx,
++    # segment-mean KL(student||teacher) > tau). The distributional trigger is what makes our
++    # gated-B algorithmically distinct from Relay-OPD.
++    trigger_mode = os.environ.get("RELAY_OPD_TRIGGER_MODE", "lexical").strip().lower()
++    trig_kl_tau = _float("RELAY_OPD_TRIGGER_KL_TAU", 0.5)
++    trig_min_tok = _int("RELAY_OPD_TRIGGER_MIN_TOK", 8)
++    # distributional-trigger KL direction: "reverse" = KL(student||teacher) (default, historical;
++    # fires where student is off-manifold = KAT death-point); "forward" = KL(teacher||student)
++    # (fires where teacher has mass student lacks = teacher-knows-better = A-type good point).
++    kl_dir = os.environ.get("RELAY_OPD_KL_DIR", "reverse").strip().lower()
++    # DTV-Relay 4: annealing via student-uncertainty gate. Require segment-mean student entropy
++    # > tau_ent to trigger. As the student improves, its entropy drops -> fewer triggers ->
++    # takeover auto-tapers toward pure OPD (no late collapse). <=0 disables (no anneal gate).
++    anneal_ent_tau = _float("RELAY_OPD_ANNEAL_ENT_TAU", 0.0)
++    # entropygap trigger (value-of-information / direction (1)): fire where the segment-mean
++    # STUDENT entropy H_s > ent_hs_tau (student uncertain = a genuine fork) AND the segment-mean
++    # TEACHER entropy H_t < ent_ht_tau (teacher confident = can resolve it). H_t<tau kills the
++    # KAT "both-confused" points that divergence triggers (KL/Hellinger) fire on. Not a distance.
++    ent_hs_tau = _float("RELAY_OPD_ENT_HS_TAU", 0.0)     # student entropy floor tau1 (fire if H_s > tau1)
++    ent_ht_tau = _float("RELAY_OPD_ENT_HT_TAU", 1e9)     # teacher entropy ceiling tau2 (fire if H_t < tau2)
+     if takeover_enabled and max_takeovers <= 0:
+         raise RuntimeError(
+             "RELAY_OPD_MAX_TAKEOVERS must be positive when takeover is enabled"
+@@ -997,6 +1157,17 @@ def _relay_opd_rejection_sample(
+             if takeover_enabled and _TAKEOVER_TOKENS_REMAINING.get(ext, 0) > 0:
+                 in_takeover_per_req[bi] = True
+ 
++    # gated-B: at a fresh trajectory start (response base position 0) clear any stale
++    # teacher-prefix-NLL accumulator so a reused ext rid cannot leak prior-trajectory prefix.
++    if _gate_on:
++        _base_pos = _get_response_base_positions(sampling_metadata, batch_size)
++        if _base_pos is not None:
++            for bi in range(batch_size):
++                ext = ext_rids[bi]
++                if ext is not None and _base_pos[bi] == 0:
++                    _TEACHER_PREFIX_NLL_SUM.pop(ext, None)
++                    _TEACHER_PREFIX_TOK.pop(ext, None)
++
+     teacher_output = torch.zeros_like(output, dtype=torch.bool)
+     standard_target_output = torch.zeros_like(output, dtype=torch.bool)
+     emitted_takeover = torch.zeros_like(output, dtype=torch.bool)
+@@ -1040,11 +1211,42 @@ def _relay_opd_rejection_sample(
+ 
+     in_takeover_per_token = in_takeover_per_req[req_ids]
+     teacher_argmax = target_logits.argmax(dim=-1)
+-    teacher_is_reflection = torch.isin(teacher_argmax, reflection_token_ids)
+-    raw_trigger_candidate = (
+-        teacher_is_reflection & teacher_argmax.ne(draft_token_ids.long())
+-        & valid_pos & valid_draft & ~in_takeover_per_token
+-    )
++    if trigger_mode in ("distributional", "entropygap"):
++        # Segment-level triggers: fire on the CURRENT \n\n segment's running-mean statistic.
++        # distributional -> segment-mean KL(student||teacher) > tau (a divergence magnitude).
++        # entropygap     -> segment-mean H_student > tau1 AND segment-mean H_teacher < tau2
++        #                   (a value-of-information signal: student uncertain, teacher confident).
++        # The per-segment accumulators are updated + reset at boundaries at end of call.
++        _seg_mean_kl = torch.zeros(batch_size, device=device)
++        _seg_mean_ent = torch.zeros(batch_size, device=device)
++        _seg_mean_tent = torch.zeros(batch_size, device=device)
++        _seg_cnt = torch.zeros(batch_size, device=device)
++        for _b in range(batch_size):
++            _ext = ext_rids[_b]
++            if _ext is not None:
++                _c = _SEG_KL_CNT.get(_ext, 0)
++                if _c > 0:
++                    _seg_mean_kl[_b] = _SEG_KL_SUM[_ext] / _c
++                    _seg_mean_ent[_b] = _SEG_ENT_SUM.get(_ext, 0.0) / _c
++                    _seg_mean_tent[_b] = _SEG_TENT_SUM.get(_ext, 0.0) / _c
++                    _seg_cnt[_b] = _c
++        if trigger_mode == "entropygap":
++            _dist_ok = ((_seg_mean_ent > ent_hs_tau) & (_seg_mean_tent < ent_ht_tau)
++                        & (_seg_cnt >= trig_min_tok))
++        else:
++            _dist_ok = (_seg_mean_kl > trig_kl_tau) & (_seg_cnt >= trig_min_tok)
++            if anneal_ent_tau > 0.0:   # DTV-Relay 4: also require student uncertain (auto-anneal)
++                _dist_ok = _dist_ok & (_seg_mean_ent > anneal_ent_tau)
++        raw_trigger_candidate = (
++            _dist_ok[req_ids] & teacher_argmax.ne(draft_token_ids.long())
++            & valid_pos & valid_draft & ~in_takeover_per_token
++        )
++    else:
++        teacher_is_reflection = torch.isin(teacher_argmax, reflection_token_ids)
++        raw_trigger_candidate = (
++            teacher_is_reflection & teacher_argmax.ne(draft_token_ids.long())
++            & valid_pos & valid_draft & ~in_takeover_per_token
++        )
+     trigger_topk = _int("RELAY_OPD_TRIGGER_TOPK", -1)
+     if trigger_topk <= 0:
+         raise RuntimeError("RELAY_OPD_TRIGGER_TOPK must be positive")
+@@ -1071,7 +1273,62 @@ def _relay_opd_rejection_sample(
+     k = min(trigger_topk, draft_probs_aligned.shape[-1])
+     student_topk_ids = draft_probs_aligned.topk(k=k, dim=-1).indices
+     teacher_in_student_topk = student_topk_ids.eq(gather_ids).any(dim=-1)
+-    stop_candidate = raw_trigger_candidate & ~teacher_in_student_topk
++    # gated-B gate: keep a trigger only where the competence condition holds.
++    #   V1: teacher prefix mean-NLL < tau (axis-aligned threshold).
++    #   V2: Hellinger^2(student,teacher) - 4*(A*prefix_nll + B) > kappa (linear boundary,
++    #       bounded divergence). cnt==0 -> prefix mean 0 (fail-open at trajectory start).
++    _h2 = None
++    if _gate_on:
++        _mean_prefix_nll = torch.zeros(batch_size, device=device)
++        for _b in range(batch_size):
++            _ext = ext_rids[_b]
++            if _ext is not None:
++                _cnt = _TEACHER_PREFIX_TOK.get(_ext, 0)
++                if _cnt > 0:
++                    _mean_prefix_nll[_b] = _TEACHER_PREFIX_NLL_SUM[_ext] / _cnt
++        _prefix_nll_tok = _mean_prefix_nll[req_ids]
++        if gate_mode == "v2":
++            _tprob = torch.softmax(target_logits.float(), dim=-1)
++            _sprob = draft_probs_aligned.float().clamp_min(0.0)
++            _h2 = (1.0 - (_sprob.sqrt() * _tprob.sqrt()).sum(-1)).clamp(0.0, 1.0)
++            _score = _h2 - 4.0 * (v2_A * _prefix_nll_tok + v2_B).clamp(min=0.0)
++            teacher_confident = _score > v2_kappa
++        elif gate_mode == "v3":
++            _tprob = torch.softmax(target_logits.float(), dim=-1)
++            _sprob = draft_probs_aligned.float().clamp_min(0.0)
++            _h2 = (1.0 - (_sprob.sqrt() * _tprob.sqrt()).sum(-1)).clamp(0.0, 1.0)
++            # STEP gate: teacher competent about prefix (low prefix-NLL) AND divergence
++            # high (h2 > kappa). v3-noGate ablation: set N_STAR huge -> only h2>kappa bites.
++            teacher_confident = (_prefix_nll_tok < v3_n_star) & (_h2 > v3_kappa)
++        else:
++            teacher_confident = _prefix_nll_tok < teacher_ppl_gate_nll
++    else:
++        teacher_confident = torch.ones(num_tokens, dtype=torch.bool, device=device)
++    stop_candidate = raw_trigger_candidate & ~teacher_in_student_topk & teacher_confident
++    if _gate_on:
++        _stats_add(
++            "relay_gate_filtered",
++            raw_trigger_candidate & ~teacher_in_student_topk & ~teacher_confident,
++        )
++        # gated-B DIAGNOSTIC (throttled): is the gate biting? prefix-NLL / Hellinger dist.
++        global _GATE_DIAG_CALLS
++        _GATE_DIAG_CALLS += 1
++        _cand = raw_trigger_candidate & ~teacher_in_student_topk
++        _ncand = int(_cand.sum().item())
++        if _ncand > 0 and (_GATE_DIAG_CALLS % 40 == 1):
++            _ngated = int((_cand & ~teacher_confident).sum().item())
++            _nll_at = _mean_prefix_nll[req_ids][_cand]
++            _extra = ""
++            if _h2 is not None:
++                _hc = _h2[_cand]
++                _extra = (f" H2@trig mean={_hc.mean().item():.3f} min={_hc.min().item():.3f} "
++                          f"max={_hc.max().item():.3f} kappa={v2_kappa} A={v2_A} B={v2_B}")
++            print(
++                f"[gate-diag] mode={gate_mode} cand={_ncand} gated={_ngated} "
++                f"({100.0*_ngated/max(_ncand,1):.0f}%) prefixNLL@trig mean={_nll_at.mean().item():.3f} "
++                f"nonzero_frac={(_nll_at>0).float().mean().item():.2f}{_extra}",
++                flush=True,
++            )
+     trigger_topk_threshold = torch.where(
+         stop_candidate,
+         torch.full((num_tokens,), int(trigger_topk), dtype=torch.int32, device=device),
+@@ -1297,6 +1554,110 @@ def _relay_opd_rejection_sample(
+                 _TAKEOVER_TOKENS_REMAINING[ext] = cap_cur
+                 _TAKEOVER_PARAGRAPHS_REMAINING[ext] = paragraphs_cur
+ 
++    # gated-B: accumulate teacher NLL over the student-realized tokens of this call into the
++    # per-trajectory prefix accumulator (consumed by the competence gate on later calls).
++    if _gate_on:
++        _safe_draft = draft_token_ids.long().clamp_min(0).clamp_max(vocab_size - 1)
++        _teacher_tok_nll = (
++            target_logits.float().logsumexp(dim=-1)
++            - target_logits.gather(1, _safe_draft[:, None]).squeeze(1).float()
++        )
++        _nll_by_req = torch.zeros(batch_size, device=device)
++        _cnt_by_req = torch.zeros(batch_size, device=device)
++        if emit_student.any():
++            _nll_by_req.scatter_add_(0, req_ids[emit_student], _teacher_tok_nll[emit_student])
++            _cnt_by_req.scatter_add_(
++                0, req_ids[emit_student],
++                torch.ones(int(emit_student.sum().item()), device=device),
++            )
++        _nll_cpu = _nll_by_req.detach().cpu().tolist()
++        _cnt_cpu = _cnt_by_req.detach().cpu().tolist()
++        for _b in range(batch_size):
++            _ext = ext_rids[_b]
++            if _ext is None or _cnt_cpu[_b] <= 0:
++                continue
++            _TEACHER_PREFIX_NLL_SUM[_ext] = _TEACHER_PREFIX_NLL_SUM.get(_ext, 0.0) + _nll_cpu[_b]
++            _TEACHER_PREFIX_TOK[_ext] = _TEACHER_PREFIX_TOK.get(_ext, 0) + int(_cnt_cpu[_b])
++
++    # distributional trigger: accumulate per-token KL(student||teacher) over student-realized
++    # tokens into the current-\n\n-segment accumulator; reset at boundary and trajectory start.
++    if trigger_mode in ("distributional", "entropygap"):
++        _ps = draft_probs_aligned.float().clamp_min(1e-9)
++        # clamp teacher log-prob floor to avoid KL -> inf where teacher assigns ~0 mass to a
++        # token the student samples (log_softmax can be -inf); clamp the KL itself too.
++        _logpt = target_logits.float().log_softmax(dim=-1).clamp_min(-30.0)
++        _pt = target_logits.float().softmax(dim=-1).clamp_min(1e-9)
++        if kl_dir == "forward":
++            # forward KL(teacher||student) = sum p_t (log p_t - log p_s): fires where the TEACHER
++            # has mass the student lacks (teacher-knows-better = A-type good point). Contrast with
++            # reverse KL below, which fires where the student is off-manifold (KAT death-point).
++            _kl_tok = (_pt * (_logpt - _ps.log())).sum(-1).clamp(min=0.0, max=30.0)
++        else:
++            # reverse KL(student||teacher) (default): student confident where teacher is not.
++            _kl_tok = (_ps * (_ps.log() - _logpt)).sum(-1).clamp(min=0.0, max=30.0)
++        _ent_tok = -(_ps * _ps.log()).sum(-1)  # DTV-Relay 4: per-token student entropy H_s
++        _tent_tok = -(_pt * _pt.log()).sum(-1)  # entropygap: per-token teacher entropy H_t
++        _kls = torch.zeros(batch_size, device=device)
++        _ents = torch.zeros(batch_size, device=device)
++        _tents = torch.zeros(batch_size, device=device)
++        _klc = torch.zeros(batch_size, device=device)
++        if emit_student.any():
++            _kls.scatter_add_(0, req_ids[emit_student], _kl_tok[emit_student])
++            _ents.scatter_add_(0, req_ids[emit_student], _ent_tok[emit_student])
++            _tents.scatter_add_(0, req_ids[emit_student], _tent_tok[emit_student])
++            _klc.scatter_add_(0, req_ids[emit_student],
++                              torch.ones(int(emit_student.sum().item()), device=device))
++        _kls_cpu = _kls.detach().cpu().tolist(); _klc_cpu = _klc.detach().cpu().tolist()
++        _ents_cpu = _ents.detach().cpu().tolist()
++        _tents_cpu = _tents.detach().cpu().tolist()
++        _bpos = _get_response_base_positions(sampling_metadata, batch_size)
++        if paragraph_boundary_ids.numel() > 0:
++            _bnd = (torch.isin(output.long(), paragraph_boundary_ids) & output.ge(0)).any(dim=1).detach().cpu().tolist()
++        else:
++            _bnd = [False] * batch_size
++        for _b in range(batch_size):
++            _ext = ext_rids[_b]
++            if _ext is None:
++                continue
++            if _bpos is not None and _bpos[_b] == 0:
++                _SEG_KL_SUM.pop(_ext, None); _SEG_KL_CNT.pop(_ext, None)
++                _SEG_ENT_SUM.pop(_ext, None); _SEG_TENT_SUM.pop(_ext, None)
++            if _klc_cpu[_b] > 0:
++                _SEG_KL_SUM[_ext] = _SEG_KL_SUM.get(_ext, 0.0) + _kls_cpu[_b]
++                _SEG_ENT_SUM[_ext] = _SEG_ENT_SUM.get(_ext, 0.0) + _ents_cpu[_b]
++                _SEG_TENT_SUM[_ext] = _SEG_TENT_SUM.get(_ext, 0.0) + _tents_cpu[_b]
++                _SEG_KL_CNT[_ext] = _SEG_KL_CNT.get(_ext, 0) + int(_klc_cpu[_b])
++            if _bnd[_b]:
++                _SEG_KL_SUM.pop(_ext, None); _SEG_KL_CNT.pop(_ext, None)
++                _SEG_ENT_SUM.pop(_ext, None); _SEG_TENT_SUM.pop(_ext, None)
++        global _TRIG_DIAG_CALLS
++        _TRIG_DIAG_CALLS += 1
++        if _TRIG_DIAG_CALLS % 40 == 1:
++            _means = [_SEG_KL_SUM[k] / _SEG_KL_CNT[k] for k in _SEG_KL_CNT if _SEG_KL_CNT[k] > 0]
++            _emeans = [_SEG_ENT_SUM[k] / _SEG_KL_CNT[k] for k in _SEG_KL_CNT
++                       if _SEG_KL_CNT[k] > 0 and k in _SEG_ENT_SUM]
++            _tmeans = [_SEG_TENT_SUM[k] / _SEG_KL_CNT[k] for k in _SEG_KL_CNT
++                       if _SEG_KL_CNT[k] > 0 and k in _SEG_TENT_SUM]
++            if trigger_mode == "entropygap" and _emeans and _tmeans:
++                # fraction of segments satisfying the entropy-gap trigger (for tau1/tau2 calibration)
++                _gap = sum(1 for hs, ht in zip(_emeans, _tmeans)
++                           if hs > ent_hs_tau and ht < ent_ht_tau) / len(_emeans)
++                print(f"[trig-diag] entropygap n={len(_emeans)} "
++                      f"Hs mean={sum(_emeans)/len(_emeans):.3f} max={max(_emeans):.3f} "
++                      f"Ht mean={sum(_tmeans)/len(_tmeans):.3f} min={min(_tmeans):.3f} "
++                      f"tau1={ent_hs_tau} tau2={ent_ht_tau} gap_frac={_gap:.3f}", flush=True)
++            elif _means:
++                _frac = sum(1 for m in _means if m > trig_kl_tau) / len(_means)
++                _estr = ""
++                if _emeans:
++                    _estr = (f" | segENT mean={sum(_emeans)/len(_emeans):.3f} max={max(_emeans):.3f}"
++                             f" ent_tau={anneal_ent_tau}")
++                if _tmeans:
++                    _estr += f" | segTENT mean={sum(_tmeans)/len(_tmeans):.3f} min={min(_tmeans):.3f}"
++                print(f"[trig-diag] distributional tau={trig_kl_tau} segKL n={len(_means)} "
++                      f"mean={sum(_means)/len(_means):.3f} max={max(_means):.3f} >tau_frac={_frac:.2f}{_estr}",
++                      flush=True)
++
+     _stats_add("calls", 1, device=device)
+     _stats_add("requests", batch_size, device=device)
+     _stats_add("drafted_tokens", valid_pos & (draft_token_ids >= 0))
+@@ -1338,12 +1699,19 @@ def _relay_opd_rejection_sample(
+                 ).squeeze(1)
+                 action_token_by_output[action_req, action_pos] = draft_token_ids[action_indices].to(output.dtype)
+                 teacher_action_logp_by_output[action_req, action_pos] = teacher_draft_logp.to(torch.float32)
++    stop_logp_by_output = None
++    if _semantic_eos_enabled():
++        stop_logp_by_output = _compute_semantic_eos_export(
++            output, target_logits, draft_probs_aligned, req_ids, pos_in_req, valid_pos, valid_draft,
++            batch_size, vocab_size, device,
++        )
+     _record_token_source_events(
+         sampling_metadata, batch_size, device, output,
+         teacher_output_override=teacher_output,
+         action_token_by_output=action_token_by_output,
+         teacher_action_logp_by_output=teacher_action_logp_by_output,
+         valid_vocab_size=vocab_size,
++        stop_logp_by_output=stop_logp_by_output,
+     )
+     _record_trigger_stop_events(
+         sampling_metadata,
+@@ -1505,11 +1873,15 @@ def _patch_vllm_draft_sampling() -> None:
+                         continue
+                     sampled = [int(x) for x in sampled_ids]
+                     n = len(sampled)
++                    row_stop_logps: list[float] = []
+                     if non_spec_sample:
+                         row_tokens = sampled
+                         row_mask = [False] * n
+                         row_actions: list[int] = []
+                         row_action_logps: list[float] = []
++                        if _semantic_eos_enabled():
++                            # non-speculative sample (no target logits row): unknown -> NaN, loss falls back
++                            row_stop_logps = [float("nan")] * n
+                     else:
+                         if pending_rows is None or req_idx >= len(pending_rows):
+                             raise RuntimeError(
+@@ -1521,6 +1893,7 @@ def _patch_vllm_draft_sampling() -> None:
+                         row_mask = [bool(x) for x in row.get("mask", [])]
+                         row_actions = [int(x) for x in row.get("actions", [])]
+                         row_action_logps = [float(x) for x in row.get("teacher_action_logps", [])]
++                        row_stop_logps = [float(x) for x in row.get("stop_logps", [])]
+                         if row_tokens[:n] != sampled:
+                             raise RuntimeError(
+                                 "[opd-rollout] pending mask tokens do not match vLLM bookkeeping output: "
+@@ -1535,8 +1908,10 @@ def _patch_vllm_draft_sampling() -> None:
+                     positions = list(range(start_pos, end_pos))
+                     actions = row_actions[:n] if len(row_actions) >= n else None
+                     action_logps = row_action_logps[:n] if len(row_action_logps) >= n else None
++                    stop_logps = row_stop_logps[:n] if len(row_stop_logps) >= n else None
+                     _send_mask_chunk_ipc(
+-                        _strip_vllm_suffix(rid), row_mask[:n], sampled, positions, actions, action_logps
++                        _strip_vllm_suffix(rid), row_mask[:n], sampled, positions, actions, action_logps,
++                        stop_logp_chunk=stop_logps,
+                     )
+             except Exception:
+                 logger.exception("[opd-rollout] failed to flush deferred mask IPC after vLLM bookkeeping")
+diff --git a/relay-opd/opd/scripts/baselines/grpo.sh b/relay-opd/opd/scripts/baselines/grpo.sh
+index d9a9648..a66256c 100644
+--- a/relay-opd/opd/scripts/baselines/grpo.sh
++++ b/relay-opd/opd/scripts/baselines/grpo.sh
+@@ -58,7 +58,7 @@ python3 -m verl.trainer.main_ppo \
+     data.filter_overlong_prompts=True \
+     data.truncation=error \
+     data.shuffle=True \
+-    data.seed=42 \
++    data.seed=${SEED:-42} \
+     +data.apply_chat_template_kwargs.enable_thinking=False \
+     actor_rollout_ref.model.path="${STUDENT_MODEL}" \
+     actor_rollout_ref.model.use_remove_padding=True \
+diff --git a/relay-opd/opd/scripts/baselines/opd.sh b/relay-opd/opd/scripts/baselines/opd.sh
+index 1835b0b..3b6e549 100644
+--- a/relay-opd/opd/scripts/baselines/opd.sh
++++ b/relay-opd/opd/scripts/baselines/opd.sh
+@@ -25,7 +25,29 @@ export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
+ export RAY_DEDUP_LOGS=${RAY_DEDUP_LOGS:-0}
+ 
+ train_batch_size=${TRAIN_BATCH_SIZE:-128}
++# 上一次尝试的 Ray worker 日志还留在本 job 的私有 /tmp 里(Slurm 给每个 job 独立 /tmp,
++# 所以从登录节点或别的 job 都读不到)。重试会重新 source 本脚本,趁这个机会把它们捞到
++# 共享目录,这样 AgentLoopWorker 被信号杀掉时的真实 stderr 才看得见。
++_dump=${OUTPUT_DIR:-/tmp}/ray_logs_dump
++# Ray 实际忽略了 RAY_TMPDIR,用的是默认的 /tmp/ray(日志里出现的是
++# /tmp/ray/session_latest/...),所以两个位置都要找。
++for _sess in $(ls -dt /tmp/ray/session_* ${RAY_TMPDIR:-/nonexistent}/session_* 2>/dev/null | head -2); do
++  _d=$_dump/$(basename $_sess)_$(date +%H%M%S)
++  mkdir -p $_d 2>/dev/null && {
++    cp $_sess/logs/python-core-worker-*.log $_d/ 2>/dev/null
++    cp $_sess/logs/worker-*.err $_sess/logs/worker-*.out $_d/ 2>/dev/null
++    cp $_sess/logs/raylet.err $_sess/logs/raylet.out $_sess/logs/gcs_server.err $_d/ 2>/dev/null
++    echo "[dump] Ray 日志 -> $_d ($(ls $_d 2>/dev/null | wc -l) 个文件)"
++  }
++done
++
+ ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE:-128}
++# AgentLoopWorker 数量。默认 8 个,每个各自加载一套 tokenizer/processor;m13h 这些节点
++# Slurm 账面有余量但物理内存只剩 ~140G,8 个一起起来会被内核 OOM(13937168 的
++# agent_loop_worker_4 就这么死的)。从文件读是为了能影响已经在跑/已排队的 job ——
++# 它们的环境变量在 sbatch 时就定死了,但每次重试都会重新 source 这个脚本。
++_awf=/home/kzhao2/Relay-OPD/criticopd/.agent_workers
++agent_num_workers=${AGENT_WORKERS:-$(cat $_awf 2>/dev/null || echo 8)}
+ actor_gpus_per_node=${ACTOR_GPUS_PER_NODE:-4}
+ teacher_gpus_per_node=${TEACHER_GPUS_PER_NODE:-4}
+ max_prompt_length=${MAX_PROMPT_LENGTH:-2048}
+@@ -66,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
+     data.filter_overlong_prompts=True \
+     data.truncation=error \
+     data.shuffle=True \
+-    data.seed=42 \
++    data.seed=${SEED:-42} \
+     +data.apply_chat_template_kwargs.enable_thinking=False \
+     actor_rollout_ref.model.path="${STUDENT_MODEL}" \
+     actor_rollout_ref.model.use_remove_padding=True \
+@@ -86,7 +108,7 @@ python3 -m verl.trainer.main_ppo \
+     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_memory_utilization} \
+     actor_rollout_ref.rollout.free_cache_engine=True \
+     +actor_rollout_ref.rollout.enable_sleep_mode=True \
+-    actor_rollout_ref.rollout.n=1 \
++    actor_rollout_ref.rollout.n=${ROLLOUT_N:-1} \
+     actor_rollout_ref.rollout.max_model_len=${rollout_max_model_len} \
+     ++actor_rollout_ref.rollout.engine_kwargs.vllm.moe_backend=${rollout_moe_backend} \
+     actor_rollout_ref.rollout.temperature=1.0 \
+@@ -112,6 +134,7 @@ python3 -m verl.trainer.main_ppo \
+     +actor_rollout_ref.actor.checkpoint.save_contents="${actor_checkpoint_save_contents}" \
+     reward.reward_manager.source=register \
+     reward.reward_manager.name=remote \
++    actor_rollout_ref.rollout.agent.num_workers=${agent_num_workers} \
+     reward.num_workers=4 \
+     reward.custom_reward_function.path=${VERL_OPD_DIR}/opd/reward/math_reward.py \
+     reward.custom_reward_function.name=compute_score \
+diff --git a/relay-opd/opd/scripts/baselines/seqkd.sh b/relay-opd/opd/scripts/baselines/seqkd.sh
+index 8cff49c..6c5f53a 100644
+--- a/relay-opd/opd/scripts/baselines/seqkd.sh
++++ b/relay-opd/opd/scripts/baselines/seqkd.sh
+@@ -72,7 +72,7 @@ python3 -m verl.trainer.main_ppo \
+     data.filter_overlong_prompts=True \
+     data.truncation=error \
+     data.shuffle=True \
+-    data.seed=42 \
++    data.seed=${SEED:-42} \
+     +data.offline_teacher_trajectory.enabled=True \
+     +data.offline_teacher_trajectory.prompt_token_key=prompt_token_ids \
+     +data.offline_teacher_trajectory.response_token_key=response_token_ids \
+diff --git a/relay-opd/opd/scripts/baselines/skd.sh b/relay-opd/opd/scripts/baselines/skd.sh
+index 9a7e617..b47264f 100644
+--- a/relay-opd/opd/scripts/baselines/skd.sh
++++ b/relay-opd/opd/scripts/baselines/skd.sh
+@@ -84,7 +84,7 @@ python3 -m verl.trainer.main_ppo \
+     data.filter_overlong_prompts=True \
+     data.truncation=error \
+     data.shuffle=True \
+-    data.seed=42 \
++    data.seed=${SEED:-42} \
+     +data.apply_chat_template_kwargs.enable_thinking=False \
+     actor_rollout_ref.model.path="${STUDENT_MODEL}" \
+     actor_rollout_ref.model.use_remove_padding=True \
+diff --git a/relay-opd/opd/scripts/evaluation/math.sh b/relay-opd/opd/scripts/evaluation/math.sh
+index f25c341..b672175 100644
+--- a/relay-opd/opd/scripts/evaluation/math.sh
++++ b/relay-opd/opd/scripts/evaluation/math.sh
+@@ -26,10 +26,15 @@ TOP_P=${TOP_P:-1.0}
+ GPU_MEM=${GPU_MEM:-0.90}
+ TP=${TP:-1}
+ DP_SIZE=${DP_SIZE:-4}
++# 跨 job 切分: 本 job 跑全局 shard [SHARD_BASE, SHARD_BASE+DP_SIZE) / NUM_SHARDS_TOTAL
++NUM_SHARDS_TOTAL=${NUM_SHARDS_TOTAL:-${DP_SIZE}}
++SHARD_BASE=${SHARD_BASE:-0}
+ SEED=${SEED:-42}
+ 
+ OUT_DIR="${OUT_ROOT}/${RUN_NAME}/step_${STEP}"
+-LOG_DIR="${OUT_ROOT}/job_logs/${RUN_NAME}_step_${STEP}"
++# 按 benchmark 分开:同一模型的多个 benchmark 并行跑时,共用一个 shard 日志会互相覆盖,
++# 后完成的那个会抹掉先失败那个的报错。
++LOG_DIR="${OUT_ROOT}/job_logs/${RUN_NAME}_step_${STEP}_${BENCHES//,/_}"
+ RESULTS="${OUT_ROOT}/results.tsv"
+ mkdir -p "${OUT_DIR}" "${LOG_DIR}"
+ 
+@@ -76,14 +81,44 @@ if [[ "${all_done}" == "1" ]]; then
+   echo "[skip] aggregate summaries already exist in ${OUT_DIR}: ${BENCHES}"
+ else
+   cd "${VERL_OPD_DIR}"
++  # 尊重 Slurm 实际分配的 GPU(无 cgroup 隔离时硬编码 0..DP-1 会撞别人的卡)
++  # Slurm 开了 cgroup 设备隔离时, 进程只看得到本作业分配的卡且已重编号为 0..N-1, 而
++  # SLURM_JOB_GPUS 给的是节点上的物理编号(例如分到物理 1,2 -> 进程内其实是 0,1)。
++  # 拿物理编号去 export CUDA_VISIBLE_DEVICES 会选到不存在的卡, vLLM 报
++  # "CUDA unknown error ... changing env variable CUDA_VISIBLE_DEVICES after program start"。
++  # 所以只要 CUDA_VISIBLE_DEVICES 已被 Slurm 设好, 就直接用它的逻辑索引, 且不做
++  # nvidia-smi 空闲重排(nvidia-smi 报的是物理编号, 混用会再次错位; 分配到的卡本就独占)。
++  if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
++    IFS="," read -r -a _CVD_LIST <<< "${CUDA_VISIBLE_DEVICES}"
++    SLURM_GPU_LIST=(); for _i in $(seq 0 $(( ${#_CVD_LIST[@]} - 1 ))); do SLURM_GPU_LIST+=("${_i}"); done
++    _GPU_ALLOC="${SLURM_GPU_LIST[*]}"
++  else
++    _GPU_ALLOC="${SLURM_JOB_GPUS:-${SLURM_STEP_GPUS:-${GPU_DEVICE_ORDINAL:-}}}"
++    if [[ -n "${_GPU_ALLOC}" ]]; then IFS="," read -r -a SLURM_GPU_LIST <<< "${_GPU_ALLOC}"; else SLURM_GPU_LIST=(); fi
++  fi
++  echo "[gpu-alloc] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-} SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-} SLURM_STEP_GPUS=${SLURM_STEP_GPUS:-} -> list=(${SLURM_GPU_LIST[*]:-<none, fallback 0..N>})"
++  # 运行时按显存挑真正空闲的卡(分配到的卡可能被残留/他人进程占满): Slurm 指定的优先, 再补任意空闲可见卡; 各 shard 不重叠
++  _VIS_FREE=(); while IFS= read -r _g; do [[ -n "$_g" ]] && _VIS_FREE+=("$_g"); done < <(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits 2>/dev/null | awk -F', *' '$2+0<2048{print $1}')
++  FREE_GPUS=()
++  if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
++    FREE_GPUS=("${SLURM_GPU_LIST[@]}")          # 逻辑索引, 与可见集合一一对应
++  else
++    if (( ${#SLURM_GPU_LIST[@]} )); then for _g in "${SLURM_GPU_LIST[@]}"; do for _f in "${_VIS_FREE[@]}"; do [[ "$_f" == "$_g" ]] && FREE_GPUS+=("$_g"); done; done; fi
++    for _f in "${_VIS_FREE[@]}"; do [[ " ${FREE_GPUS[*]:-} " == *" $_f "* ]] || FREE_GPUS+=("$_f"); done
++  fi
++  echo "[gpu-free] visible-free=(${_VIS_FREE[*]:-}) -> use-order=(${FREE_GPUS[*]:-<none: fallback logical idx>})"
++  if (( ${#FREE_GPUS[@]} < DP_SIZE * TP )); then echo "[gpu-free] WARN: 空闲卡 ${#FREE_GPUS[@]} < 需要 $((DP_SIZE*TP)), 不足部分回退逻辑索引" >&2; fi
+   pids=()
+   for shard_id in $(seq 0 $((DP_SIZE - 1))); do
++    if (( ${#SLURM_GPU_LIST[@]} > shard_id )); then SHARD_GPU="${SLURM_GPU_LIST[$shard_id]}"; else SHARD_GPU="${shard_id}"; fi
+     (
+       set -euo pipefail
+       gpu_start=$((shard_id * TP))
+       gpu_list=""
+       for off in $(seq 0 $((TP - 1))); do
+         gpu=$((gpu_start + off))
++        # 逻辑卡 -> Slurm 实际分配的物理卡
++        if (( ${#FREE_GPUS[@]} > gpu )); then gpu="${FREE_GPUS[$gpu]}"; fi
+         if [[ -z "${gpu_list}" ]]; then
+           gpu_list="${gpu}"
+         else
+@@ -91,9 +126,10 @@ else
+         fi
+       done
+       export CUDA_VISIBLE_DEVICES="${gpu_list}"
+-      shard_out="${OUT_DIR}/shard_${shard_id}"
++      gshard=$((SHARD_BASE + shard_id))
++      shard_out="${OUT_DIR}/shard_${gshard}"
+       mkdir -p "${shard_out}"
+-      echo "[shard ${shard_id}] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} out=${shard_out}"
++      echo "[shard ${gshard}/${NUM_SHARDS_TOTAL}] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} out=${shard_out}"
+       python3 "${EVAL_SCRIPT}" \
+         --model "${MODEL}" \
+         --benches "${BENCHES}" \
+@@ -107,10 +143,10 @@ else
+         --tp "${TP}" \
+         --seed "${SEED}" \
+         --disable_thinking \
+-        --num_shards "${DP_SIZE}" \
+-        --shard_id "${shard_id}" \
++        --num_shards "${NUM_SHARDS_TOTAL}" \
++        --shard_id "${gshard}" \
+         --out_dir "${shard_out}"
+-    ) >"${LOG_DIR}/shard_${shard_id}.log" 2>&1 &
++    ) >"${LOG_DIR}/shard_$((SHARD_BASE + shard_id)).log" 2>&1 &
+     pids+=("$!")
+   done
+ 
+@@ -127,6 +163,7 @@ else
+   fi
+ fi
+ 
++if [[ "${NUM_SHARDS_TOTAL}" != "${DP_SIZE}" ]]; then echo "[split] 本 job 只跑 shard ${SHARD_BASE}..$((SHARD_BASE+DP_SIZE-1))/${NUM_SHARDS_TOTAL}, 跳过聚合(读取器走 shard_*/)"; exit 0; fi
+ python3 - "${RUN_NAME}" "${STEP}" "${MODEL}" "${OUT_DIR}" "${RESULTS}" "${BENCHES}" "${DP_SIZE}" <<'PY'
+ import json
+ import sys
+diff --git a/relay-opd/opd/scripts/relay_opd/train.sh b/relay-opd/opd/scripts/relay_opd/train.sh
+index 1031368..42e2fa5 100644
+--- a/relay-opd/opd/scripts/relay_opd/train.sh
++++ b/relay-opd/opd/scripts/relay_opd/train.sh
+@@ -34,6 +34,30 @@ export RELAY_OPD_PARAGRAPHS_PER_TAKEOVER=${RELAY_OPD_PARAGRAPHS_PER_TAKEOVER:-3}
+ export RELAY_OPD_MAX_TAKEOVER_TOKENS=${RELAY_OPD_MAX_TAKEOVER_TOKENS:-256}
+ 
+ LOSS_MODE=${LOSS_MODE:-relay_opd}
++# ---- Semantic EOS class (Lucid-OPD EOS fix; paper "When EOS Tokens Disagree") ----
++# SEMANTIC_EOS=1 merges the task-equivalent terminal tokens E into ONE stop action for the teacher
++# signal (rollout export from target logits), the student actor log-prob and the old-policy log-prob.
++# E defaults to the student's generation_config eos_token_id set (SEMANTIC_EOS_IDS="a,b" overrides).
++SEMANTIC_EOS=${SEMANTIC_EOS:-0}
++SEMANTIC_EOS_HYDRA=""
++if [[ "${SEMANTIC_EOS}" == "1" ]]; then
++    if [[ -z "${SEMANTIC_EOS_IDS:-}" ]]; then
++        SEMANTIC_EOS_IDS=$(python3 -c "from verl.utils.semantic_eos import resolve_semantic_eos_ids as r; print(','.join(map(str, r(None, '${STUDENT_MODEL}', '${TEACHER_MODEL}'))))" 2>/dev/null | tail -1)
++    fi
++    [[ -n "${SEMANTIC_EOS_IDS}" ]] || { echo "!!! SEMANTIC_EOS=1 but could not resolve terminal token ids"; exit 1; }
++    export RELAY_OPD_SEMANTIC_EOS=1
++    export RELAY_OPD_SEMANTIC_EOS_IDS=${SEMANTIC_EOS_IDS}
++    SEMANTIC_EOS_HYDRA="+distillation.distillation_loss.semantic_eos=True +distillation.distillation_loss.semantic_eos_token_ids=[${SEMANTIC_EOS_IDS}]"
++    echo "[Relay-OPD] semantic_eos=1 terminal_token_ids=${SEMANTIC_EOS_IDS}"
++else
++    export RELAY_OPD_SEMANTIC_EOS=0
++fi
++# Rollout stop tokens: STOP_TOKEN_IDS="a,b" registers extra vLLM stop tokens (default = E when SEMANTIC_EOS=1,
++# so every task-equivalent terminal token ends generation; set explicitly for a stop-list-only control).
++STOP_TOKEN_IDS=${STOP_TOKEN_IDS:-}
++if [[ -z "${STOP_TOKEN_IDS}" && "${SEMANTIC_EOS}" == "1" ]]; then STOP_TOKEN_IDS=${SEMANTIC_EOS_IDS}; fi
++export VERL_OPD_STOP_TOKEN_IDS=${STOP_TOKEN_IDS}
++[[ -n "${STOP_TOKEN_IDS}" ]] && echo "[Relay-OPD] rollout extra stop_token_ids=${STOP_TOKEN_IDS}"
+ RELAY_ACTION_TOKEN=${RELAY_ACTION_TOKEN:-emitted}
+ if [[ "${RELAY_ACTION_TOKEN}" == "student_draft" ]]; then
+     export RELAY_OPD_EXPORT_STUDENT_ACTION=1
+@@ -97,7 +121,7 @@ python3 -m verl.trainer.main_ppo \
+     data.filter_overlong_prompts=True \
+     data.truncation=error \
+     data.shuffle=True \
+-    data.seed=42 \
++    data.seed=${SEED:-42} \
+     +data.apply_chat_template_kwargs.enable_thinking=False \
+     actor_rollout_ref.model.path="${STUDENT_MODEL}" \
+     actor_rollout_ref.model.use_remove_padding=True \
+@@ -119,7 +143,7 @@ python3 -m verl.trainer.main_ppo \
+     actor_rollout_ref.rollout.gpu_memory_utilization=${rollout_gpu_memory_utilization} \
+     actor_rollout_ref.rollout.free_cache_engine=True \
+     +actor_rollout_ref.rollout.enable_sleep_mode=True \
+-    actor_rollout_ref.rollout.n=1 \
++    actor_rollout_ref.rollout.n=${ROLLOUT_N:-1} \
+     actor_rollout_ref.rollout.max_model_len=${rollout_max_model_len} \
+     actor_rollout_ref.rollout.temperature=1.0 \
+     actor_rollout_ref.rollout.top_p=1.0 \
+@@ -161,6 +185,7 @@ python3 -m verl.trainer.main_ppo \
+     distillation.distillation_loss.use_task_rewards=False \
+     distillation.distillation_loss.loss_max_clamp=null \
+     +distillation.distillation_loss.relay_action_token=${RELAY_ACTION_TOKEN} \
++    ${SEMANTIC_EOS_HYDRA} \
+     "$@"
+ 
+ echo "=== Relay-OPD training complete: ${EXP_ID} ==="
+diff --git a/relay-opd/verl/experimental/agent_loop/__init__.py b/relay-opd/verl/experimental/agent_loop/__init__.py
+index 92385b4..5099d27 100644
+--- a/relay-opd/verl/experimental/agent_loop/__init__.py
++++ b/relay-opd/verl/experimental/agent_loop/__init__.py
+@@ -21,8 +21,12 @@ from .agent_loop import (
+ )
+ from .single_turn_agent_loop import SingleTurnAgentLoop
+ from .tool_agent_loop import ToolAgentLoop
++# CriticOPD:@register 只在模块被导入时才执行。AgentLoopWorker 不做自动扫描,只依赖这里的
++# 显式导入,所以不加这一行就会在 generate_sequences 里抛
++# "Agent loop critic_opd_agent not registered"(job 13937168 就是这么死的)。
++from .critic_opd_agent_loop import CriticOpdAgentLoop
+ 
+-_ = [SingleTurnAgentLoop, ToolAgentLoop]
++_ = [SingleTurnAgentLoop, ToolAgentLoop, CriticOpdAgentLoop]
+ 
+ __all__ = [
+     "AgentLoopBase",
+diff --git a/relay-opd/verl/experimental/agent_loop/agent_loop.py b/relay-opd/verl/experimental/agent_loop/agent_loop.py
+index c9035af..bee49af 100644
+--- a/relay-opd/verl/experimental/agent_loop/agent_loop.py
++++ b/relay-opd/verl/experimental/agent_loop/agent_loop.py
+@@ -233,6 +233,7 @@ class AgentLoopBase(ABC):
+         processing_class = self.processor if self.processor is not None else self.tokenizer
+         self.system_prompt = initialize_system_prompt(processing_class, **self.apply_chat_template_kwargs)
+         self.loop = get_event_loop()
++        self.teacher_manager = kwargs.get("teacher_manager")
+ 
+     def _get_mm_processor_kwargs(self, audio_data: Optional[list[Any]] = None) -> dict[str, Any]:
+         mm_processor_kwargs = dict(self.mm_processor_kwargs or {})
+@@ -617,6 +618,12 @@ class AgentLoopWorker:
+                 dataset_cls=self.dataset_cls,
+                 data_config=DictConfigWrap(self.config.data),
+                 tools=ToolListWrap(self.tools),
++                # CriticOPD 需要在 rollout 内让 teacher 在一个不同的 prompt 上自由生成(写批评),
++                # 而 teacher client 原本只挂在 worker 上。这里把它透传进 agent loop;
++                # AgentLoopBase 通过 **kwargs 吞掉,其他 agent loop 不受影响。
++                teacher_manager=(self.teacher_server_manager if self.distillation_enabled else None),
++                # CriticOPD 的退火调度需要知道当前训练步;其他 agent loop 同样经 **kwargs 吞掉。
++                critic_global_step=trajectory["step"],
+             )
+             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
+             return await self._agent_loop_postprocess(
+@@ -1018,6 +1025,37 @@ class AgentLoopWorker:
+                 mm_processor_kwargs=output.mm_processor_kwargs,
+                 routing_key=routing_key,
+             )
++            # --- CriticOPD L_fb(R4):用"带反馈上下文"下的 teacher 分布覆盖修复 token ---
++            # 训练序列是 prompt + kept + repair(无反馈),打分序列是
++            # prompt + kept + 反馈 + repair。两者的 repair token 完全相同,只是绝对位置不同,
++            # 所以取打分序列末尾 n_repair 行,写回训练序列里 repair 所占的那几行即可。
++            # 覆盖而不是新开一路张量:损失侧不用改,L_center 的优势中心化也互不干扰。
++            _fbp = output.extra_fields.get("critic_fb_prompt_ids")
++            if _fbp:
++                _nk = int(output.extra_fields["critic_fb_n_kept"])
++                _nr = int(output.extra_fields["critic_fb_n_repair"])
++                _repair_ids = response_ids[_nk:_nk + _nr]
++                if len(_repair_ids) == _nr > 0:
++                    _fid, _flp, _ftlp = await self.teacher_server_manager.compute_teacher_logprobs_single(
++                        sequence_ids=list(_fbp) + list(_repair_ids),
++                        multi_modal_data=output.multi_modal_data,
++                        mm_processor_kwargs=output.mm_processor_kwargs,
++                        routing_key=routing_key,
++                    )
++                    _lo = len(prompt_ids) + _nk          # 训练序列里 repair 的起点
++                    if _lo + _nr <= teacher_logprobs.shape[0] and _flp.shape[0] >= _nr:
++                        teacher_logprobs[_lo:_lo + _nr] = _flp[-_nr:]
++                        teacher_ids[_lo:_lo + _nr] = _fid[-_nr:]
++                        if teacher_token_logprobs is not None and _ftlp is not None:
++                            teacher_token_logprobs[_lo:_lo + _nr] = _ftlp[-_nr:]
++                        output.extra_fields["critic_fb_applied"] = 1
++                    else:
++                        output.extra_fields["critic_fb_applied"] = 0
++                        logger.warning("[critic_opd] L_fb 形状对不上,该样本退回无反馈 teacher 分布")
++                # 这几个只是传材料用的,不能进 batch(长度各不相同,collate 会炸)
++                for _k in ("critic_fb_prompt_ids", "critic_fb_n_kept", "critic_fb_n_repair"):
++                    output.extra_fields.pop(_k, None)
++
+             output.extra_fields["teacher_ids"] = teacher_ids
+             output.extra_fields["teacher_logprobs"] = teacher_logprobs
+             if teacher_token_logprobs is not None:
+diff --git a/relay-opd/verl/trainer/distillation/losses.py b/relay-opd/verl/trainer/distillation/losses.py
+index a3b3c0d..bb28b2a 100644
+--- a/relay-opd/verl/trainer/distillation/losses.py
++++ b/relay-opd/verl/trainer/distillation/losses.py
+@@ -15,6 +15,7 @@
+ from dataclasses import dataclass, field
+ from typing import Any, Callable, Optional
+ 
++import os
+ import torch
+ from tensordict import TensorDict
+ 
+@@ -309,10 +310,36 @@ def distillation_loss(
+             old_log_prob = data["old_log_probs"].to_padded_tensor(0.0)
+         response_mask = _to_padded_bool(response_mask)
+         rollout_is_weights = data.get("rollout_is_weights", None)
++        # trajectory-level occupancy steering: add the per-trajectory second term (if present).
++        _adv = -distillation_losses.detach()
++        if "steer_adv" in data.keys():
++            _sadv = data["steer_adv"]
++            if _sadv.is_nested:
++                _sadv = _sadv.to_padded_tensor(0.0)
++            _adv = _adv + _sadv.to(dtype=_adv.dtype)
++        # CriticOPD L_center:修复段是 off-policy 的,A = log pi_T - log pi_S 整体带一个负偏移,
++        # 于是即便是"好的"纠正也拿不到正优势。减去同 batch 内 on-policy token 的平均优势后,
++        # 比平均更好的纠正片段才转正(离线上纠正段 -0.07 vs 平均 -0.15)。
++        # 注意:这里的基线是 micro-batch 均值,不是严格的全 batch 均值 —— micro-batch 是随机切的,
++        # 所以它是全 batch 均值的无偏估计,只是多一点方差。critic_center_baseline 会记进 metrics。
++        if "critic_repair_mask" in data.keys():
++            _rep = data["critic_repair_mask"]
++            if _rep.is_nested:
++                _rep = _rep.to_padded_tensor(False)
++            if _rep.shape[-1] != _adv.shape[-1]:
++                _rep = _rep[..., -_adv.shape[-1]:]
++            _rep = _rep.bool() & response_mask
++            _onp = response_mask & (~_rep)
++            if bool(_rep.any()) and bool(_onp.any()):
++                _base = _adv[_onp].mean()
++                _adv = torch.where(_rep, _adv - _base, _adv)
++                distillation_metrics["distillation/critic_center_baseline"] = _base.detach().item()
++            distillation_metrics["distillation/critic_repair_frac"] = (
++                _rep.sum().float() / response_mask.sum().clamp(min=1).float()).detach().item()
+         distillation_loss, pg_metrics = policy_loss_fn(
+             old_log_prob=old_log_prob,
+             log_prob=log_prob,
+-            advantages=-distillation_losses.detach(),
++            advantages=_adv,
+             response_mask=response_mask,
+             loss_agg_mode=loss_agg_mode,
+             config=loss_config,
+@@ -622,6 +649,87 @@ def relay_opd_loss(
+                 )
+             teacher_token_lp = torch.where(teacher_action_mask, teacher_action_lp, teacher_token_lp)
+ 
++    # ---- Semantic EOS class (Lucid-OPD fix, paper "When EOS Tokens Disagree") ----
++    # At positions whose emitted token is a terminal token e in E, the student/old log-probs coming
++    # from the engine already mean log p(STOP) (see verl.utils.semantic_eos). Here the teacher side is
++    # switched to log p_T(STOP), which the rollout exported from the speculative target logits
++    # (relay_teacher_stop_logprobs). Everything downstream (k1 advantage, PPO ratio/clip, masks,
++    # aggregation) is the unchanged Relay-OPD chain, now fed with semantic log-probs.
++    semantic_eos_metrics: dict[str, Any] = {}
++    if getattr(loss_config, "semantic_eos", False):
++        from verl.utils import tensordict_utils as _tu
++        from verl.utils.semantic_eos import parse_eos_ids
++
++        eos_ids = parse_eos_ids(_tu.get_non_tensor_data(data=data, key="semantic_eos_ids", default=None))
++        if not eos_ids:
++            raise RuntimeError("semantic_eos=True but 'semantic_eos_ids' is missing from the batch meta info.")
++        responses = data.get("responses", None)
++        if responses is None:
++            raise RuntimeError("semantic_eos=True requires data['responses'].")
++        if responses.is_nested:
++            responses = responses.to_padded_tensor(0)
++        responses = responses.to(device=student_log_probs.device)
++        eos_t = torch.tensor(eos_ids, dtype=torch.long, device=responses.device)
++        eos_pos = torch.isin(responses, eos_t) & response_mask
++        stop_lp = data.get("relay_teacher_stop_logprobs", None)
++        stop_mask = data.get("relay_stop_mask", None)
++        if stop_lp is None or stop_mask is None:
++            raise RuntimeError(
++                "semantic_eos=True requires the rollout export relay_teacher_stop_logprobs/relay_stop_mask "
++                "(set RELAY_OPD_SEMANTIC_EOS=1 for the vLLM patch; train.sh does this with SEMANTIC_EOS=1)."
++            )
++        if stop_lp.is_nested:
++            stop_lp = stop_lp.to_padded_tensor(0.0)
++        if stop_mask.is_nested:
++            stop_mask = stop_mask.to_padded_tensor(False)
++        stop_lp = stop_lp.to(device=student_log_probs.device, dtype=teacher_token_lp.dtype)
++        stop_mask = stop_mask.to(device=student_log_probs.device).bool()
++        have_stop = eos_pos & stop_mask
++        missing_stop = eos_pos & ~stop_mask
++        teacher_token_lp_sampled = teacher_token_lp
++        teacher_token_lp = torch.where(have_stop, stop_lp, teacher_token_lp)
++        n_eos = eos_pos.float().sum()
++        raw_student_eos_lp = model_output.get("eos_token_log_probs", None)
++        _dev = student_log_probs.device
++        # Every DP rank must emit the SAME metric keys the SAME number of times: Metric accumulates one
++        # value per micro-batch and Metric.aggregate_dp() rejects ragged lists. Whether a micro-batch
++        # contains a natural stop is data dependent (at a 16384 horizon many contain none), so these
++        # means are emitted unconditionally and fall back to 0 on micro-batches without stops -- read
++        # them together with semantic_eos/positions, which carries the number of contributing positions.
++        def _stop_mean(t: torch.Tensor) -> torch.Tensor:
++            sel = t[have_stop]
++            return sel.mean() if sel.numel() else torch.zeros((), device=_dev, dtype=torch.float32)
++
++        semantic_eos_metrics["semantic_eos/adv_semantic_mean"] = Metric(
++            AggregationType.MEAN, _stop_mean(stop_lp - student_log_probs.detach())
++        )
++        semantic_eos_metrics["semantic_eos/student_p_stop_mean"] = Metric(
++            AggregationType.MEAN, _stop_mean(student_log_probs.detach().exp())
++        )
++        semantic_eos_metrics["semantic_eos/teacher_p_stop_mean"] = Metric(
++            AggregationType.MEAN, _stop_mean(stop_lp.exp())
++        )
++        if raw_student_eos_lp is not None:  # depends on the engine config, identical on every rank
++            raw_student_eos_lp = no_padding_2_padding(raw_student_eos_lp, data).to(device=_dev)
++            a_samp = teacher_token_lp_sampled.detach() - raw_student_eos_lp
++            semantic_eos_metrics["semantic_eos/adv_sampled_mean"] = Metric(AggregationType.MEAN, _stop_mean(a_samp))
++            semantic_eos_metrics["semantic_eos/adv_sampled_neg_frac"] = Metric(
++                AggregationType.MEAN, _stop_mean((a_samp < 0).float())
++            )
++            semantic_eos_metrics["semantic_eos/student_p_emitted_eos_mean"] = Metric(
++                AggregationType.MEAN, _stop_mean(raw_student_eos_lp.exp())
++            )
++            semantic_eos_metrics["semantic_eos/teacher_p_emitted_eos_mean"] = Metric(
++                AggregationType.MEAN, _stop_mean(teacher_token_lp_sampled.detach().exp())
++            )
++        semantic_eos_metrics["semantic_eos/positions"] = Metric(AggregationType.SUM, n_eos.detach())
++        semantic_eos_metrics["semantic_eos/missing_export_ratio"] = Metric(
++            AggregationType.MEAN, (missing_stop.float().sum() / n_eos.clamp_min(1.0)).detach()
++        )
++        semantic_eos_metrics["semantic_eos/seq_natural_stop_ratio"] = Metric(
++            AggregationType.MEAN, eos_pos.any(dim=-1).float().mean().detach()
++        )
++
+     k1_losses = kl_penalty(logprob=student_log_probs, ref_logprob=teacher_token_lp, kl_penalty="k1")
+     if loss_config.loss_max_clamp is not None:
+         k1_losses = k1_losses.clamp(min=-loss_config.loss_max_clamp, max=loss_config.loss_max_clamp)
+@@ -658,7 +766,23 @@ def relay_opd_loss(
+         fkl_loss_tok = torch.zeros_like(pg_loss_tok)
+ 
+     if teacher_loss_mode == "rkl":
+-        loss_tok = response_mask.float() * pg_loss_tok
++        # DTV-Relay component 3 (verifier/outcome-advantage weighting): scale the teacher-
++        # takeover tokens by the trajectory's task-reward advantage (>=0). Relay trajectories
++        # whose teacher takeover led to a WRONG answer (negative advantage) contribute ~0 from
++        # their teacher tokens; helpful takeovers keep full/upweighted signal. Student tokens
++        # are always weight 1 (pure on-policy). Off by default (== original Relay-OPD).
++        if os.environ.get("RELAY_OPD_VERIFIER_WEIGHT", "0") == "1" and ("advantages" in data.keys()):
++            _adv = data["advantages"]
++            if _adv.is_nested:
++                _adv = _adv.to_padded_tensor(0.0)
++            _adv = _adv.to(dtype=pg_loss_tok.dtype)
++            _rm = response_mask.float()
++            _traj_adv = (_adv * _rm).sum(-1, keepdim=True) / _rm.sum(-1, keepdim=True).clamp_min(1.0)
++            _w_teacher = _traj_adv.clamp(min=0.0)  # keep teacher tokens only from above-baseline trajectories
++            _scale = student_mask.float() + teacher_mask.float() * _w_teacher
++            loss_tok = _scale * pg_loss_tok
++        else:
++            loss_tok = response_mask.float() * pg_loss_tok
+     else:
+         loss_tok = (
+             student_mask.float() * pg_loss_tok
+@@ -718,6 +842,7 @@ def relay_opd_loss(
+         "distillation/k1_adv_std_student": Metric(AggregationType.MEAN, k1_adv_on_student.std(unbiased=False).detach()),
+         **{f"distillation/{k[len('actor/'):]}" if k.startswith("actor/") else f"distillation/{k}": v
+            for k, v in pg_metrics.items()},
++        **semantic_eos_metrics,
+     }
+     if teacher_loss_mode == "fkl":
+         metrics.update(
+diff --git a/relay-opd/verl/trainer/main_ppo_sync.py b/relay-opd/verl/trainer/main_ppo_sync.py
+index 8605299..f1d2690 100644
+--- a/relay-opd/verl/trainer/main_ppo_sync.py
++++ b/relay-opd/verl/trainer/main_ppo_sync.py
+@@ -707,6 +707,26 @@ class PPOTrainer:
+         else:
+             self.teacher_model_manager = None
+             self.distillation_config = None
++        # Semantic EOS class (Lucid-OPD EOS fix): resolve the terminal token set E once and hand it to
++        # the actor engine as batch meta ("semantic_eos_ids") for BOTH the old-log-prob pass and the
++        # update pass, so old/current log-probs at terminal positions consistently mean log p(STOP).
++        self.semantic_eos_ids_str: str | None = None
++        if self.distillation_config is not None and getattr(
++            self.distillation_config.distillation_loss, "semantic_eos", False
++        ):
++            from verl.utils.semantic_eos import resolve_semantic_eos_ids
++
++            _teacher_path = None
++            for _tm in (self.distillation_config.teacher_models or {}).values():
++                _teacher_path = getattr(_tm, "model_path", None)
++                break
++            _ids = resolve_semantic_eos_ids(
++                self.distillation_config.distillation_loss.semantic_eos_token_ids,
++                self.config.actor_rollout_ref.model.path,
++                _teacher_path,
++            )
++            self.semantic_eos_ids_str = ",".join(str(i) for i in _ids)
++            logger.info(f"[semantic_eos] enabled; terminal token set E={_ids}")
+ 
+         # 9. initialize agent loop manager
+         self.llm_server_manager = LLMServerManager.create(
+@@ -1323,6 +1343,8 @@ class PPOTrainer:
+                 "temperature": self.config.actor_rollout_ref.rollout.temperature,
+             }
+         )
++        if getattr(self, "semantic_eos_ids_str", None):
++            batch.extra_info["semantic_eos_ids"] = self.semantic_eos_ids_str
+         output: KVBatchMeta = self.actor_rollout_wg.compute_log_prob(batch)
+         assert len(output) == len(batch)
+ 
+@@ -1510,6 +1532,8 @@ class PPOTrainer:
+             "dataloader_kwargs": {"shuffle": self.config.actor_rollout_ref.actor.shuffle},
+             "temperature": self.config.actor_rollout_ref.rollout.temperature,
+         }
++        if getattr(self, "semantic_eos_ids_str", None):
++            extra_info["semantic_eos_ids"] = self.semantic_eos_ids_str
+         batch.extra_info.update(extra_info)
+ 
+         output: TensorDict = self.actor_rollout_wg.update_actor(batch)
+diff --git a/relay-opd/verl/trainer/ppo/ray_trainer.py b/relay-opd/verl/trainer/ppo/ray_trainer.py
+index 3584b3a..1ecf9f5 100644
+--- a/relay-opd/verl/trainer/ppo/ray_trainer.py
++++ b/relay-opd/verl/trainer/ppo/ray_trainer.py
+@@ -938,6 +938,26 @@ class RayPPOTrainer:
+         else:
+             self.teacher_model_manager = None
+             self.distillation_config = None
++        # Semantic EOS class (Lucid-OPD EOS fix): resolve the terminal token set E once; it is handed to the
++        # actor engine as batch meta "semantic_eos_ids" for BOTH the old-log-prob pass and the update pass,
++        # so old/current log-probs at terminal positions consistently mean log p(STOP).
++        self.semantic_eos_ids_str: str | None = None
++        if self.distillation_config is not None and getattr(
++            self.distillation_config.distillation_loss, "semantic_eos", False
++        ):
++            from verl.utils.semantic_eos import resolve_semantic_eos_ids
++
++            _teacher_path = None
++            for _tm in (self.distillation_config.teacher_models or {}).values():
++                _teacher_path = getattr(_tm, "model_path", None)
++                break
++            _ids = resolve_semantic_eos_ids(
++                self.distillation_config.distillation_loss.semantic_eos_token_ids,
++                self.config.actor_rollout_ref.model.path,
++                _teacher_path,
++            )
++            self.semantic_eos_ids_str = ",".join(str(x) for x in _ids)
++            print(f"[semantic_eos] enabled; terminal token set E={_ids}")
+             self.teacher_logprob_manager = None
+ 
+         # Support custom AgentLoopManager via config
+@@ -1472,12 +1492,14 @@ class RayPPOTrainer:
+         batch_td = left_right_2_no_padding(batch_td)
+         # step 3: add meta info
+         calculate_sum_pi_squared = self.config.actor_rollout_ref.actor.get("calculate_sum_pi_squared", False)
+-        tu.assign_non_tensor(
+-            batch_td,
++        _old_lp_meta = dict(
+             calculate_entropy=True,
+             calculate_sum_pi_squared=calculate_sum_pi_squared,
+             compute_loss=False,
+         )
++        if getattr(self, "semantic_eos_ids_str", None):
++            _old_lp_meta["semantic_eos_ids"] = self.semantic_eos_ids_str
++        tu.assign_non_tensor(batch_td, **_old_lp_meta)
+         output = self.actor_rollout_wg.compute_log_prob(batch_td)
+         # gather output
+         entropy = tu.get(output, "entropy")
+@@ -1588,10 +1610,45 @@ class RayPPOTrainer:
+         del batch.non_tensor_batch["relay_student_action_mask"]
+         del batch.non_tensor_batch["relay_student_action_teacher_logprobs"]
+ 
++    @staticmethod
++    def _attach_relay_stop_logprobs(batch: DataProto):
++        """Semantic EOS class: pad the rollout-exported teacher log p(STOP) to [bsz, response_len]."""
++        if "relay_teacher_stop_logprobs" in batch.batch:
++            return
++        logps = batch.non_tensor_batch.get("relay_teacher_stop_logprobs", None)
++        masks = batch.non_tensor_batch.get("relay_stop_mask", None)
++        if logps is None or masks is None:
++            return
++        response_mask = batch.batch["response_mask"].bool()
++        bsz, response_len = response_mask.shape
++        out_lp = torch.zeros(bsz, response_len, dtype=torch.float32, device=response_mask.device)
++        out_mask = torch.zeros(bsz, response_len, dtype=torch.bool, device=response_mask.device)
++        for i in range(bsz):
++            row_lp = logps[i]
++            row_m = masks[i]
++            if row_lp is None or row_m is None:
++                continue
++            row_lp = list(row_lp)
++            row_m = list(row_m)
++            n = min(len(row_lp), len(row_m), response_len)
++            if n <= 0:
++                continue
++            m = torch.tensor(row_m[:n], dtype=torch.bool, device=response_mask.device) & response_mask[i, :n]
++            lp = torch.tensor(
++                [float(x) if x == x else 0.0 for x in row_lp[:n]], dtype=torch.float32, device=response_mask.device
++            )
++            out_lp[i, :n] = torch.where(m, lp, torch.zeros_like(lp))
++            out_mask[i, :n] = m
++        batch.batch["relay_teacher_stop_logprobs"] = out_lp
++        batch.batch["relay_stop_mask"] = out_mask
++        del batch.non_tensor_batch["relay_teacher_stop_logprobs"]
++        del batch.non_tensor_batch["relay_stop_mask"]
++
+     @classmethod
+     def _attach_relay_training_fields(cls, batch: DataProto):
+         cls._attach_relay_teacher_mask(batch)
+         cls._attach_relay_student_action_fields(batch)
++        cls._attach_relay_stop_logprobs(batch)
+ 
+     @staticmethod
+     def _compute_trigger_stop_metrics(batch: DataProto) -> dict[str, float]:
+@@ -1684,6 +1741,8 @@ class RayPPOTrainer:
+             dataloader_kwargs={"shuffle": shuffle},
+             compute_loss=True,
+         )
++        if getattr(self, "semantic_eos_ids_str", None):
++            tu.assign_non_tensor(batch_td, semantic_eos_ids=self.semantic_eos_ids_str)
+         actor_output = self.actor_rollout_wg.update_actor(batch_td)
+         actor_output = tu.get(actor_output, "metrics")
+         actor_output = rename_dict(actor_output, "actor/")
+@@ -2009,6 +2068,71 @@ class RayPPOTrainer:
+                             config=self.config.algorithm,
+                         )
+ 
++                        # --- trajectory-level occupancy-term steering (opt-in RELAY_OPD_STEER=1) ---
++                        # Adds a per-trajectory second term to the samplek/OPD advantage; pushes down
++                        # trajectories whose total divergence-from-teacher S[g] exceeds their LOO group
++                        # baseline. Requires rollout.n>1. Stored in batch["steer_adv"], consumed by loss.
++                        if os.environ.get("RELAY_OPD_STEER", "0") == "1" and "uid" in batch.non_tensor_batch:
++                            import numpy as _np
++                            from opd.patches.tb_steer_traj import compute_traj_steer
++                            if not hasattr(self, "_steer_state"):
++                                self._steer_state = {}
++                                self._steer_step = 0
++                            self._steer_step += 1
++                            _olp = batch.batch["old_log_probs"]
++                            _tlp = batch.batch.get("teacher_token_logprobs", None)
++                            if _tlp is None:
++                                _tlp = batch.batch.get("teacher_logprobs", None)
++                            if _tlp is not None:
++                                if _tlp.dim() == 3:
++                                    _tlp = _tlp[..., 0]
++                                _rm = batch.batch["response_mask"].float()
++                                # align teacher logprobs to the response window (old_log_probs is
++                                # response-only; teacher may carry the prompt prefix too).
++                                if _tlp.shape[-1] != _olp.shape[-1]:
++                                    _tlp = _tlp[..., -_olp.shape[-1]:]
++                                _ell = (_olp - _tlp) * _rm  # per-token k1 reverse-KL (student minus teacher)
++                                _, _uidi = _np.unique(batch.non_tensor_batch["uid"], return_inverse=True)
++                                _uidt = torch.tensor(_uidi, device=_olp.device)
++                                _steer, _beta, _sst = compute_traj_steer(
++                                    _ell, _rm, _uidt, self._steer_state,
++                                    grad_ratio_target=float(os.environ.get("RELAY_OPD_STEER_RATIO", "0.1")),
++                                    mode=os.environ.get("RELAY_OPD_STEER_MODE", "sum"),
++                                )
++                                _wu = int(os.environ.get("RELAY_OPD_STEER_WARMUP", "20"))
++                                batch.batch["steer_adv"] = (_beta * _steer) if self._steer_step > _wu \
++                                    else torch.zeros_like(_steer)
++                                metrics.update({f"steer/{_k}": _v for _k, _v in _sst.items()})
++
++                        # --- CriticOPD L_center:标出修复 token,交给 loss 做优势中心化 ---
++                        # critic_opd_agent_loop 给被修复的样本打 num_turns=4,纯 on-policy rollout 打 2。
++                        # 被修复样本的 response_mask 在保留前缀上是 0、只在修复段上是 1,所以"该样本参与
++                        # 训练的 token"恰好就是"修复 token",不需要额外的 token 级标注。
++                        # 指标对 center 和 fb 都统计;但 critic_repair_mask 只给 center ——
++                        # losses.py 见到它就做优势中心化,给 fb arm 写上它等于偷偷叠加 L_center,
++                        # R4 系列就不再是 R4。
++                        _closs = os.environ.get("CRITIC_OPD_LOSS", "clean")
++                        if _closs in ("center", "fb"):
++                            # 自报告:静默失效(拿不到 __num_turns__ -> 退化成 L_clean 却标着 center)
++                            # 是最坏的失败模式,所以这里无论成败都往 metrics 里写一个数。
++                            if "__num_turns__" not in batch.non_tensor_batch:
++                                metrics["critic_opd/missing_num_turns"] = 1.0
++                            else:
++                                import numpy as _np2
++                                _rm2 = batch.batch["response_mask"]
++                                if _rm2.is_nested:
++                                    _rm2 = _rm2.to_padded_tensor(0)
++                                _nt = torch.as_tensor(
++                                    _np2.asarray(batch.non_tensor_batch["__num_turns__"], dtype=_np2.int64),
++                                    device=_rm2.device)
++                                _repm = (_nt >= 4).unsqueeze(-1) & _rm2.bool()
++                                if _closs == "center":
++                                    batch.batch["critic_repair_mask"] = _repm
++                                metrics["critic_opd/missing_num_turns"] = 0.0
++                                metrics["critic_opd/repair_seq_frac"] = float((_nt >= 4).float().mean().item())
++                                metrics["critic_opd/repair_tok_frac"] = float(
++                                    _repm.sum().item() / max(int(_rm2.bool().sum().item()), 1))
++
+                     # update critic
+                     if self.use_critic:
+                         with marked_timer("update_critic", timing_raw, color="pink"):
+diff --git a/relay-opd/verl/trainer/sft_trainer.py b/relay-opd/verl/trainer/sft_trainer.py
+index 81fc630..ab1be43 100644
+--- a/relay-opd/verl/trainer/sft_trainer.py
++++ b/relay-opd/verl/trainer/sft_trainer.py
+@@ -234,7 +234,8 @@ class SFTTrainer:
+         dp_size = self.engine.get_data_parallel_size()
+ 
+         self.train_sampler = DistributedSampler(
+-            self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True
++            self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True,
++            seed=int(os.environ.get("SFT_DATA_SEED", "0")),   # 多 seed 实验用;默认 0 与原来一致
+         )
+ 
+         self.global_batch_size = config.data.train_batch_size
+diff --git a/relay-opd/verl/workers/config/distillation.py b/relay-opd/verl/workers/config/distillation.py
+index 0b52f8d..b3aa1e3 100644
+--- a/relay-opd/verl/workers/config/distillation.py
++++ b/relay-opd/verl/workers/config/distillation.py
+@@ -81,6 +81,14 @@ class DistillationLossConfig(BaseConfig):
+     relay_teacher_mask_key: str = "relay_teacher_mask"
+     relay_fallback_all_k1: bool = False
+ 
++    # Semantic EOS class (paper: "When EOS Tokens Disagree"). When enabled, all task-equivalent
++    # terminal tokens are merged into ONE stop action for the teacher signal, the student actor
++    # log-prob and the old-policy log-prob (log p(STOP) = logsumexp_{e in E} log p(e)).
++    # semantic_eos_token_ids=None -> resolved at runtime from the student's generation_config
++    # (see verl.utils.semantic_eos.resolve_semantic_eos_ids). Only wired into relay_opd (Lucid-OPD).
++    semantic_eos: bool = False
++    semantic_eos_token_ids: Optional[list[int]] = None
++
+     # Store global batch info for loss aggregation:
+     # dp_size: data parallel size
+     # batch_num_tokens: number of valid tokens in global batch
+diff --git a/relay-opd/verl/workers/engine/fsdp/transformer_impl.py b/relay-opd/verl/workers/engine/fsdp/transformer_impl.py
+index 1e8fc20..5ff6568 100644
+--- a/relay-opd/verl/workers/engine/fsdp/transformer_impl.py
++++ b/relay-opd/verl/workers/engine/fsdp/transformer_impl.py
+@@ -62,6 +62,7 @@ from verl.utils.fsdp_utils import (
+ from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs
+ from verl.utils.py_functional import convert_to_regular_types
+ from verl.utils.torch_functional import logprobs_from_logits
++from verl.utils.semantic_eos import parse_eos_ids, semantic_eos_logprobs
+ from verl.utils.ulysses import (
+     gather_outputs_and_unpad,
+     get_ulysses_sequence_parallel_group,
+@@ -1084,6 +1085,16 @@ class FSDPEngineWithLMHead(FSDPEngine):
+             data=micro_batch, key="calculate_sum_pi_squared", default=False
+         )
+         distillation_use_topk = tu.get_non_tensor_data(data=micro_batch, key="distillation_use_topk", default=False)
++        # Semantic EOS class: comma separated terminal token ids (set by the trainer only when
++        # distillation_loss.semantic_eos=True). Applied identically to the old-policy pass and the
++        # update pass, so current/old log-probs at EOS positions both mean log p(STOP).
++        semantic_eos_ids = parse_eos_ids(tu.get_non_tensor_data(data=micro_batch, key="semantic_eos_ids", default=None))
++        eos_token_log_probs = None
++        eos_token_lp_rmpad = None
++        if semantic_eos_ids and use_fused_kernels:
++            raise NotImplementedError(
++                "semantic_eos=True needs the full logits tensor; set model.use_fused_kernels=False."
++            )
+ 
+         if calculate_sum_pi_squared and use_fused_kernels:
+             raise NotImplementedError(
+@@ -1131,6 +1142,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
+                     labels=input_ids_rmpad_rolled,
+                     inplace_backward=inplace_backward,
+                 )
++                if semantic_eos_ids:
++                    # rows whose sampled token is terminal -> log p(STOP) (full-vocab normalised,
++                    # gradient kept through the logsumexp). Raw token log-prob kept for diagnostics.
++                    log_probs, eos_token_lp_rmpad = semantic_eos_logprobs(
++                        logits=logits_rmpad, labels=input_ids_rmpad_rolled, log_probs=log_probs, eos_ids=semantic_eos_ids
++                    )
+ 
+                 # compute entropy
+                 if calculate_entropy:
+@@ -1175,6 +1192,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
+                         unpad_dim=0,
+                         padding_size=pad_size,
+                     )
++                if eos_token_lp_rmpad is not None:
++                    eos_token_lp_rmpad = gather_outputs_and_unpad(
++                        eos_token_lp_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
++                    )
+                 if calculate_sum_pi_squared:
+                     sum_pi_squared_rmpad = gather_outputs_and_unpad(
+                         sum_pi_squared_rmpad,
+@@ -1187,6 +1208,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
+                 cu_seqlens = input_ids.offsets()
+                 # (bsz, j1), for each sample, is the length of each sample: [real_prompt length + real_response length]
+                 log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
++                if eos_token_lp_rmpad is not None:
++                    eos_token_log_probs = torch.nested.nested_tensor_from_jagged(eos_token_lp_rmpad, cu_seqlens)
+                 if calculate_entropy:
+                     entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+                 if calculate_sum_pi_squared:
+@@ -1223,6 +1246,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
+                     logits_rmpad = torch.cat([t for t in logits.unbind()])
+                     input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+                     log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
++                    if semantic_eos_ids:
++                        log_probs, eos_token_lp_rmpad = semantic_eos_logprobs(
++                            logits=logits_rmpad, labels=input_ids_rmpad_rolled, log_probs=log_probs, eos_ids=semantic_eos_ids
++                        )
++                        eos_token_log_probs = torch.nested.nested_tensor_from_jagged(eos_token_lp_rmpad, cu_seqlens)
+ 
+                     # Mirror the use_remove_padding=True branch (see verl#6293).
+                     # No Ulysses SP gather here: this branch is the no-SP path
+@@ -1254,6 +1282,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
+                     raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
+ 
+         model_output["log_probs"] = log_probs
++        if eos_token_log_probs is not None:
++            model_output["eos_token_log_probs"] = eos_token_log_probs
+         if calculate_entropy:
+             model_output["entropy"] = entropy
+         if calculate_sum_pi_squared:
+diff --git a/relay-opd/verl/workers/rollout/vllm_rollout/vllm_async_server.py b/relay-opd/verl/workers/rollout/vllm_rollout/vllm_async_server.py
+index 4d75376..884c202 100644
+--- a/relay-opd/verl/workers/rollout/vllm_rollout/vllm_async_server.py
++++ b/relay-opd/verl/workers/rollout/vllm_rollout/vllm_async_server.py
+@@ -565,6 +565,12 @@ class vLLMHttpServer:
+         )
+         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
+         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
++        # Semantic EOS class: every task-equivalent terminal token must end generation, even when the
++        # student's generation_config declares only one of them (e.g. Qwen3-*-Base: <|endoftext|> only).
++        _extra_stop = os.environ.get("VERL_OPD_STOP_TOKEN_IDS", "").strip()
++        if _extra_stop:
++            _extra_ids = {int(x) for x in _extra_stop.replace(";", ",").split(",") if x.strip()}
++            sampling_params["stop_token_ids"] = sorted(set(sampling_params.get("stop_token_ids") or []) | _extra_ids)
+         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+         prompt_ids = qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
+         multi_modal_data = {}
+@@ -735,7 +741,7 @@ class vLLMHttpServer:
+ 
+         # Export token-source metadata from the vLLM worker subprocess.
+         if os.environ.get("VERL_OPD_SPECULATIVE_ENABLE") == "1" and hasattr(self, "_opd_mask_ipc"):
+-            mask, action_ids, action_logps, action_mask = self._opd_mask_ipc.pop_with_actions(
++            mask, action_ids, action_logps, action_mask, stop_logps, stop_mask = self._opd_mask_ipc.pop_with_actions(
+                 request_id, expected_len=len(token_ids), token_ids=token_ids
+             )
+             if mask is None:
+@@ -749,6 +755,10 @@ class vLLMHttpServer:
+                     f"got {len(mask)}, expected {len(token_ids)}, diff={len(token_ids) - len(mask)}"
+                 )
+             extra_fields["relay_teacher_mask"] = mask
++            if stop_logps is not None and stop_mask is not None:
++                # semantic EOS class: teacher log p(STOP) at terminal positions (NaN elsewhere)
++                extra_fields["relay_teacher_stop_logprobs"] = stop_logps
++                extra_fields["relay_stop_mask"] = stop_mask
+             if action_ids is not None and action_logps is not None and action_mask is not None:
+                 extra_fields["relay_student_action_ids"] = action_ids
+                 extra_fields["relay_student_action_teacher_logprobs"] = action_logps
+@@ -1146,6 +1156,7 @@ class OpdMaskIpcServer:
+         self.position_store: dict[str, list[int]] = defaultdict(list)
+         self.action_store: dict[str, list[int]] = defaultdict(list)
+         self.action_logp_store: dict[str, list[float]] = defaultdict(list)
++        self.stop_logp_store: dict[str, list[float]] = defaultdict(list)
+         self.stop_event_store: dict[str, list[dict[str, Any]]] = defaultdict(list)
+         self.lock = threading.Lock()
+         self._stop = threading.Event()
+@@ -1178,7 +1189,7 @@ class OpdMaskIpcServer:
+                 with self.lock:
+                     self.stop_event_store[rid].append(stop_event)
+                 continue
+-            mask, tokens, positions, actions, action_logps = self._decode_payload(parts[1])
++            mask, tokens, positions, actions, action_logps, stop_logps = self._decode_payload(parts[1])
+             if not mask:
+                 continue
+             with self.lock:
+@@ -1191,6 +1202,8 @@ class OpdMaskIpcServer:
+                     self.action_store[rid].extend(actions)
+                 if action_logps is not None:
+                     self.action_logp_store[rid].extend(action_logps)
++                if stop_logps is not None:
++                    self.stop_logp_store[rid].extend(stop_logps)
+ 
+     @staticmethod
+     def _decode_stop_event_payload(body: bytes) -> dict[str, Any] | None:
+@@ -1208,7 +1221,37 @@ class OpdMaskIpcServer:
+     @staticmethod
+     def _decode_payload(
+         body: bytes,
+-    ) -> tuple[list[bool], list[int] | None, list[int] | None, list[int] | None, list[float] | None]:
++    ) -> tuple[
++        list[bool], list[int] | None, list[int] | None, list[int] | None, list[float] | None, list[float] | None
++    ]:
++        # OPD4 payload (semantic EOS class export) from opd.patches.vllm.speculative_decode:
++        #   b"OPD4" + uint8(n) + n mask bytes + n int32 emitted ids + n int32 positions
++        #   + n float32 teacher log p(STOP) (NaN if not terminal) + uint8 has_actions
++        #   [+ n int32 PG action ids + n float32 teacher logp(action)].
++        if body.startswith(b"OPD4") and len(body) >= 5:
++            n = body[4]
++            base = 5 + n + 12 * n + 1
++            if len(body) < base:
++                return [], None, None, None, None, None
++            mask_start = 5
++            token_start = mask_start + n
++            position_start = token_start + 4 * n
++            stop_start = position_start + 4 * n
++            flag_pos = stop_start + 4 * n
++            mask = [bool(x) for x in body[mask_start:token_start]]
++            tokens = list(struct.unpack(f"!{n}i", body[token_start:position_start])) if n else []
++            positions = list(struct.unpack(f"!{n}i", body[position_start:stop_start])) if n else []
++            stop_logps = list(struct.unpack(f"!{n}f", body[stop_start:flag_pos])) if n else []
++            actions = action_logps = None
++            if body[flag_pos] == 1:
++                expected = base + 8 * n
++                if len(body) < expected:
++                    return [], None, None, None, None, None
++                a0 = flag_pos + 1
++                actions = list(struct.unpack(f"!{n}i", body[a0 : a0 + 4 * n])) if n else []
++                action_logps = list(struct.unpack(f"!{n}f", body[a0 + 4 * n : expected])) if n else []
++            return mask, tokens, positions, actions, action_logps, stop_logps
++
+         # OPD3 payload from opd.patches.vllm.speculative_decode:
+         #   b"OPD3" + uint8(n) + n mask bytes
+         #   + n int32 emitted ids + n int32 positions
+@@ -1217,7 +1260,7 @@ class OpdMaskIpcServer:
+             n = body[4]
+             expected = 5 + n + 16 * n
+             if len(body) < expected:
+-                return [], None, None, None, None
++                return [], None, None, None, None, None
+             mask_start = 5
+             token_start = mask_start + n
+             position_start = token_start + 4 * n
+@@ -1228,7 +1271,7 @@ class OpdMaskIpcServer:
+             positions = list(struct.unpack(f"!{n}i", body[position_start:action_start])) if n else []
+             actions = list(struct.unpack(f"!{n}i", body[action_start:action_logp_start])) if n else []
+             action_logps = list(struct.unpack(f"!{n}f", body[action_logp_start:expected])) if n else []
+-            return mask, tokens, positions, actions, action_logps
++            return mask, tokens, positions, actions, action_logps, None
+ 
+         # OPD2 payload from opd.patches.vllm.speculative_decode:
+         #   b"OPD2" + uint8(n) + n mask bytes
+@@ -1237,17 +1280,17 @@ class OpdMaskIpcServer:
+             n = body[4]
+             expected = 5 + n + 8 * n
+             if len(body) < expected:
+-                return [], None, None, None, None
++                return [], None, None, None, None, None
+             mask_start = 5
+             token_start = mask_start + n
+             position_start = token_start + 4 * n
+             mask = [bool(x) for x in body[mask_start:token_start]]
+             tokens = list(struct.unpack(f"!{n}i", body[token_start:position_start])) if n else []
+             positions = list(struct.unpack(f"!{n}i", body[position_start:expected])) if n else []
+-            return mask, tokens, positions, None, None
++            return mask, tokens, positions, None, None, None
+ 
+         logger.error("[opd-rollout] unsupported mask IPC payload prefix: %r", body[:4])
+-        return [], None, None, None, None
++        return [], None, None, None, None, None
+ 
+     @staticmethod
+     def _align_mask_by_positions(
+@@ -1302,6 +1345,33 @@ class OpdMaskIpcServer:
+             )
+         return aligned
+ 
++    @staticmethod
++    def _align_stop_logps_by_positions(
++        event_positions: list[int],
++        stop_logps: list[float] | None,
++        token_ids: list[int],
++    ) -> tuple[list[float] | None, list[bool] | None]:
++        """Place exported teacher log p(STOP) values at absolute response positions.
++
++        Returns (logps with NaN where absent, mask=True where a finite value exists).
++        """
++        if stop_logps is None:
++            return None, None
++        expected_len = len(token_ids)
++        if len(stop_logps) != len(event_positions):
++            raise RuntimeError(
++                f"OPD4 malformed stop_logps length: stop_logps={len(stop_logps)}, positions={len(event_positions)}"
++            )
++        aligned = [float("nan")] * expected_len
++        aligned_mask = [False] * expected_len
++        for value, pos in zip(stop_logps, event_positions):
++            pos = int(pos)
++            if pos < 0 or pos >= expected_len or not math.isfinite(float(value)):
++                continue
++            aligned[pos] = float(value)
++            aligned_mask[pos] = True
++        return aligned, aligned_mask
++
+     @staticmethod
+     def _align_actions_by_positions(
+         event_positions: list[int],
+@@ -1337,9 +1407,11 @@ class OpdMaskIpcServer:
+         expected_len: int,
+         token_ids: list[int] | None = None,
+         timeout_s: float = 0.5,
+-    ) -> tuple[list[bool] | None, list[int] | None, list[float] | None, list[bool] | None]:
++    ) -> tuple[
++        list[bool] | None, list[int] | None, list[float] | None, list[bool] | None, list[float] | None, list[bool] | None
++    ]:
+         if request_id is None:
+-            return None, None, None, None
++            return None, None, None, None, None, None
+         if token_ids is None or expected_len != len(token_ids):
+             raise RuntimeError(
+                 f"OPD absolute-position alignment requires final token_ids: "
+@@ -1357,11 +1429,13 @@ class OpdMaskIpcServer:
+                     positions = self.position_store.pop(request_id, None)
+                     actions = self.action_store.pop(request_id, None)
+                     action_logps = self.action_logp_store.pop(request_id, None)
++                    stop_logps = self.stop_logp_store.pop(request_id, None)
+                     aligned_mask = self._align_mask_by_positions(mask, tokens, positions, token_ids, request_id)
+                     aligned_actions, aligned_logps, aligned_action_mask = self._align_actions_by_positions(
+                         positions, actions, action_logps, token_ids
+                     )
+-                    return aligned_mask, aligned_actions, aligned_logps, aligned_action_mask
++                    aligned_stop, aligned_stop_mask = self._align_stop_logps_by_positions(positions, stop_logps, token_ids)
++                    return aligned_mask, aligned_actions, aligned_logps, aligned_action_mask, aligned_stop, aligned_stop_mask
+             time.sleep(0.01)
+         with self.lock:
+             mask = self.mask_store.pop(request_id, None)
+@@ -1369,15 +1443,17 @@ class OpdMaskIpcServer:
+             positions = self.position_store.pop(request_id, None)
+             actions = self.action_store.pop(request_id, None)
+             action_logps = self.action_logp_store.pop(request_id, None)
++            stop_logps = self.stop_logp_store.pop(request_id, None)
+         if mask is None:
+-            return None, None, None, None
++            return None, None, None, None, None, None
+         if positions is None:
+             raise RuntimeError(f"OPD mask IPC payload has no absolute positions for request_id={request_id}")
+         aligned_mask = self._align_mask_by_positions(mask, tokens, positions, token_ids, request_id)
+         aligned_actions, aligned_logps, aligned_action_mask = self._align_actions_by_positions(
+             positions, actions, action_logps, token_ids
+         )
+-        return aligned_mask, aligned_actions, aligned_logps, aligned_action_mask
++        aligned_stop, aligned_stop_mask = self._align_stop_logps_by_positions(positions, stop_logps, token_ids)
++        return aligned_mask, aligned_actions, aligned_logps, aligned_action_mask, aligned_stop, aligned_stop_mask
+ 
+     def pop_stop_event(self, request_id: str, timeout_s: float = 0.05) -> dict[str, Any] | None:
+         if request_id is None:

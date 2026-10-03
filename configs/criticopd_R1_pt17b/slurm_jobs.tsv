@@ -1,0 +1,2 @@
+job_id	name	state	elapsed	nodes	alloc_tres	submit_line
+13937150	criticopd_R1_pt17b	COMPLETED	10:50:44	m13h-1-2	billing=900,cpu=28,gres/gpu=3,mem=600G,node=1	sbatch --parsable --partition=m13h --qos=gpu --exclude=dw-2-4,dw-1-3 --time=2-00:00:00 --gres=gpu:3 --nodes=1 --nodelist=m13h-1-2 --cpus-per-task=28 --mem=600G --job-name=criticopd_R1_pt17b --output=/home/kzhao2/Relay-OPD/logs/%x_%j.log --export=ALL lucid_v2/run_locked.sl

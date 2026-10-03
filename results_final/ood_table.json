@@ -1,0 +1,550 @@
+{
+ "generated": "2026-09-28",
+ "protocol": {
+  "n_samples": 4,
+  "max_new_mc": 8192,
+  "max_new_code": 4096,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "seed": 42,
+  "mc_grading": "extracted \\boxed{letter}",
+  "code_grading": "evalplus pass@1 over 4 samples; base=official tests, plus=+extra tests; code block chosen with need_def=True; evalplus result cache cleared before each run",
+  "random_baseline": {
+   "mmlu": 25,
+   "mmlu_pro": 10,
+   "arc_c": 25,
+   "obqa": 25
+  },
+  "subsets": "MMLU 2000/14042 stratified by subject; MMLU-Pro 2000/12032 stratified by category; ARC-C/OBQA/HumanEval+/MBPP+ full"
+ },
+ "rows": [
+  {
+   "method": "Student",
+   "run": "student_1p7b_ood",
+   "step": 0,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 55.44,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 37.69,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 77.6,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 74.1,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 67.4,
+     "plus": 62.0,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 66.1,
+     "plus": 55.9,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 61.21,
+   "avg_code_plus": 58.95,
+   "avg_ood6": 60.45
+  },
+  {
+   "method": "SFT",
+   "run": "sft_pt17b_ood",
+   "step": 40,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 62.54,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 48.62,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 83.87,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 79.7,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 68.6,
+     "plus": 62.5,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 66.7,
+     "plus": 54.8,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 68.68,
+   "avg_code_plus": 58.65,
+   "avg_ood6": 65.34
+  },
+  {
+   "method": "KD",
+   "run": "seqkd_pt17b_ood",
+   "step": 139,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 63.74,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 51.1,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 84.28,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 80.6,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 68.3,
+     "plus": 62.7,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 70.7,
+     "plus": 58.1,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 69.93,
+   "avg_code_plus": 60.4,
+   "avg_ood6": 66.75
+  },
+  {
+   "method": "GRPO",
+   "run": "grpo_pt17b_ood",
+   "step": 120,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 60.89,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 50.98,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 81.68,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 78.75,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 68.8,
+     "plus": 63.4,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 68.3,
+     "plus": 58.2,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 68.08,
+   "avg_code_plus": 60.8,
+   "avg_ood6": 65.65
+  },
+  {
+   "method": "OPD",
+   "run": "opd_1p7b_ood",
+   "step": 80,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 67.13,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 56.07,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 87.09,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 82.95,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 71.8,
+     "plus": 66.2,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 73.0,
+     "plus": 60.8,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 73.31,
+   "avg_code_plus": 63.5,
+   "avg_ood6": 70.04
+  },
+  {
+   "method": "TRD",
+   "run": "trd_pt17b_ood",
+   "step": 40,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 60.46,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 46.92,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 81.83,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 75.85,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 67.4,
+     "plus": 61.1,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 68.7,
+     "plus": 57.5,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 66.27,
+   "avg_code_plus": 59.3,
+   "avg_ood6": 63.94
+  },
+  {
+   "method": "FastOPD",
+   "run": "fastopd8192_1p7b_ood",
+   "step": 60,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 66.27,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 54.75,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 85.94,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 83.4,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 70.4,
+     "plus": 65.5,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 73.2,
+     "plus": 60.8,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 72.59,
+   "avg_code_plus": 63.15,
+   "avg_ood6": 69.44
+  },
+  {
+   "method": "SKD",
+   "run": "skd_pt17b_ood",
+   "step": 120,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 64.81,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 52.35,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 85.88,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 80.65,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 69.1,
+     "plus": 62.3,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 72.2,
+     "plus": 60.1,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 70.92,
+   "avg_code_plus": 61.2,
+   "avg_ood6": 67.68
+  },
+  {
+   "method": "RelayOPD",
+   "run": "relay_1p7b_ood",
+   "step": 40,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 65.93,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 54.23,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 86.09,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 82.75,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 71.8,
+     "plus": 65.2,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 72.6,
+     "plus": 60.0,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 72.25,
+   "avg_code_plus": 62.6,
+   "avg_ood6": 69.03
+  },
+  {
+   "method": "Lucid-OPD",
+   "run": "lucid_T1donly_pt17b_ood",
+   "step": 60,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 65.9,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 53.81,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 85.41,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 82.25,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 69.1,
+     "plus": 62.8,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 71.7,
+     "plus": 59.3,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 71.84,
+   "avg_code_plus": 61.05,
+   "avg_ood6": 68.25
+  },
+  {
+   "method": "Teacher",
+   "run": "teacher_4b_ood",
+   "step": 0,
+   "benches": {
+    "mmlu_mini": {
+     "acc": 80.18,
+     "n_problems": 1998,
+     "n_rows": 7992,
+     "complete": true
+    },
+    "mmlu_pro_2k": {
+     "acc": 69.5,
+     "n_problems": 2000,
+     "n_rows": 8000,
+     "complete": true
+    },
+    "arc_c": {
+     "acc": 94.97,
+     "n_problems": 1172,
+     "n_rows": 4688,
+     "complete": true
+    },
+    "obqa": {
+     "acc": 93.7,
+     "n_problems": 500,
+     "n_rows": 2000,
+     "complete": true
+    },
+    "humanevalplus": {
+     "base": 88.9,
+     "plus": 81.9,
+     "n_problems": 164,
+     "n_rows": 656,
+     "complete": true
+    },
+    "mbpp": {
+     "base": 87.8,
+     "plus": 73.9,
+     "n_problems": 378,
+     "n_rows": 1512,
+     "complete": true
+    }
+   },
+   "avg_mc": 84.59,
+   "avg_code_plus": 77.9,
+   "avg_ood6": 82.36
+  }
+ ]
+}

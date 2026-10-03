@@ -1,0 +1,12 @@
+{
+  "tag": "amc23",
+  "model": "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507",
+  "bench": "amc23",
+  "n_problems": 83,
+  "n_samples": 32,
+  "avg@k": 0.85994,
+  "pass@1": 0.855422,
+  "pass@k": 0.963855,
+  "wall_seconds": 8377.256367206573,
+  "n_shards": 1
+}

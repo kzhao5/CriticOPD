@@ -1,0 +1,12 @@
+{
+  "tag": "olympiad",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/fastopd8192_pt06b/global_step_40/actor/huggingface",
+  "bench": "olympiad",
+  "n_problems": 675,
+  "n_samples": 8,
+  "avg@k": 0.441296,
+  "pass@1": 0.462222,
+  "pass@k": 0.672593,
+  "wall_seconds": 22740.729120254517,
+  "n_shards": 8
+}

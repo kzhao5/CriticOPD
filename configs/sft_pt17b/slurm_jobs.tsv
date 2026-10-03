@@ -1,0 +1,2 @@
+job_id	name	state	elapsed	nodes	alloc_tres	submit_line
+13772584	pb_sft_pt17b_s1	COMPLETED	03:30:00	cs-2-2	billing=1232,cpu=32,gres/gpu:h100=4,gres/gpu=4,mem=350G,node=1	sbatch --job-name=pb_sft_pt17b_s1 --partition=cs,cs2 --qos=cs --parsable --gres=gpu:4 --cpus-per-task=32 --mem=350G --time=24:00:00 --dependency=afterany:13772580:13772581 --output=/nobackup/autodelete/usr/kzhao2/relay-opd/slurm_logs/%x_%j.log --export=ALL,SEG=1,TARGET_STEP=139 paper_baselines/train_segment.sl

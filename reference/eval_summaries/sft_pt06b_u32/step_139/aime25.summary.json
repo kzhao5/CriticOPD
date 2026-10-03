@@ -1,0 +1,49 @@
+{
+  "tag": "aime25",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt06b/global_step_139/actor/huggingface",
+  "bench": "aime25",
+  "n_problems": 30,
+  "n_samples": 32,
+  "avg@k": 0.06770833333333333,
+  "pass@1": 0.03333333333333333,
+  "pass@k": 0.4666666666666667,
+  "wall_seconds": 7390.878813505173,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 30,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "aime25",
+      "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/sft_pt06b/global_step_139/actor/huggingface",
+      "bench": "aime25",
+      "n_problems": 30,
+      "n_samples": 32,
+      "avg@k": 0.06770833333333333,
+      "pass@1": 0.03333333333333333,
+      "pass@k": 0.4666666666666667,
+      "wall_seconds": 7390.878813505173,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 30,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

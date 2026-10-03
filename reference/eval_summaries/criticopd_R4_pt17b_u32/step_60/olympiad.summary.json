@@ -1,0 +1,49 @@
+{
+  "tag": "olympiad",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4_pt17b/global_step_60/actor/huggingface",
+  "bench": "olympiad",
+  "n_problems": 675,
+  "n_samples": 8,
+  "avg@k": 0.5583333333333333,
+  "pass@1": 0.5481481481481482,
+  "pass@k": 0.7481481481481481,
+  "wall_seconds": 5981.359865665436,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 675,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "olympiad",
+      "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4_pt17b/global_step_60/actor/huggingface",
+      "bench": "olympiad",
+      "n_problems": 675,
+      "n_samples": 8,
+      "avg@k": 0.5583333333333333,
+      "pass@1": 0.5481481481481482,
+      "pass@k": 0.7481481481481481,
+      "wall_seconds": 5981.359865665436,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 675,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

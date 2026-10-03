@@ -1,0 +1,37 @@
+一、错误会不会重复(535 条批语)
+  misread or ignored a condition    111   20.7%
+  algebra or sign error             105   19.6%
+  unjustified assumption             96   17.9%
+  wrong formula or theorem           74   13.8%
+  arithmetic slip                    49    9.2%
+  missed a case                      49    9.2%
+  domain or boundary error           35    6.5%
+  flawed overall approach            10    1.9%
+  overcounting or undercounting       6    1.1%
+  前 3 类覆盖 58.3%,前 5 类覆盖 81.3%
+  判为「会在别的题上重复」: 100.0%
+  教训示例:
+    [algebra or sign error] When squaring and combining terms with fractions, always compute each squared term individually and add them before simplifying, rather than combining the denominators incorrectly.
+    [wrong formula or theorem] Before concluding that a bound is achievable, verify that the proposed value satisfies a necessary constraint derived from the total sum and the structure of the subsets.
+    [unjustified assumption] Before claiming a problem reduces to a certain mathematical setup, verify that the proposed equivalence is both logically valid and complete, especially when the original question involves counting elements with specific properties.
+    [domain or boundary error] When dealing with sequential selections, the sample space must account for the order of draws and the dependencies between steps, not just the final outcome or a single combination.
+    [algebra or sign error] Always verify that the entries in the matrix correspond correctly to the positions used in the determinant expansion, especially when applying the cofactor formula.
+    [algebra or sign error] When using trigonometry to place a point based on an angle, always consider the quadrant and orientation to ensure the correct sign of the coordinate.
+    [arithmetic slip] Always double-check arithmetic when evaluating an expression at a given value, especially when the result is expected to be a prime number.
+    [domain or boundary error] Always verify that all values in a sequence or set satisfy the given constraints before including them in a count.
+
+二、检验一:新题从头做(每题每种条件 4 次,按题配对)
+  none       正确率  45.4%  (题数 254)
+  retrieved  正确率  44.3%  (题数 254)
+  random     正确率  43.9%  (题数 254)
+  retrieved − none: -1.1 个百分点  95% CI [-4.1, +2.0]
+  random − none: -1.5 个百分点  95% CI [-4.5, +1.8]
+  retrieved − random: +0.4 个百分点  95% CI [-2.7, +3.4]
+  none       生成长度中位 3988
+  retrieved  生成长度中位 3818
+  random     生成长度中位 3774
+
+三、检验二:错误解答按批语重写(每条每种条件 2 次,按解答配对)
+  feedback           修复成功率  27.8%  (解答数 261)
+  feedback+lessons   修复成功率  25.5%  (解答数 261)
+  加教训 − 只有批语: -2.3 个百分点  95% CI [-6.1, +1.3]

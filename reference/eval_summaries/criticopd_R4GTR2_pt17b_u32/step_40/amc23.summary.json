@@ -1,0 +1,12 @@
+{
+  "tag": "amc23",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4GTR2_pt17b/global_step_40/actor/huggingface",
+  "bench": "amc23",
+  "n_problems": 83,
+  "n_samples": 32,
+  "avg@k": 0.67131,
+  "pass@1": 0.710843,
+  "pass@k": 0.903614,
+  "wall_seconds": 2158.7990865707397,
+  "n_shards": 4
+}

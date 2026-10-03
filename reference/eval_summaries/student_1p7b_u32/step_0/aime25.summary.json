@@ -1,0 +1,12 @@
+{
+  "tag": "aime25",
+  "model": "/home/kzhao2/OPD/model/Qwen3-1.7B",
+  "bench": "aime25",
+  "n_problems": 30,
+  "n_samples": 32,
+  "avg@k": 0.091667,
+  "pass@1": 0.1,
+  "pass@k": 0.4,
+  "wall_seconds": 119.99292826652527,
+  "n_shards": 1
+}

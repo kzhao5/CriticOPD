@@ -1,0 +1,12 @@
+{
+  "tag": "obqa",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/seqkd_pt17b/global_step_139/actor/huggingface",
+  "bench": "obqa",
+  "n_problems": 500,
+  "n_samples": 4,
+  "avg@k": 0.793,
+  "pass@1": 0.786,
+  "pass@k": 0.942,
+  "wall_seconds": 214.71412301063538,
+  "n_shards": 1
+}

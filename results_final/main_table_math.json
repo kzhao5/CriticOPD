@@ -1,0 +1,1285 @@
+{
+ "protocol": {
+  "samples": 32,
+  "max_new": 32768,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "seed": 42,
+  "note": "olympiad/minerva \u7528 16 samples;olympiadBench 675 \u9898\u3001minerva 272 \u9898"
+ },
+ "generated": "2026-09-28",
+ "rows": [
+  {
+   "scale": "1.7B",
+   "method": "Student",
+   "run": "student_1p7b_pt",
+   "step": 0,
+   "benches": {
+    "aime24": {
+     "acc": 13.44,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 9.58,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 41.6,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 73.19,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 40.21,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 29.87,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 34.45,
+   "avg6": 34.65,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "SFT",
+   "run": "sft_pt17b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 27.6,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 22.81,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 57.34,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 83.37,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 52.43,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 34.79,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 47.78,
+   "avg6": 46.39,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "KD",
+   "run": "seqkd_pt17b",
+   "step": 139,
+   "benches": {
+    "aime24": {
+     "acc": 19.79,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 16.98,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 52.52,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 79.1,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 48.03,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 34.4,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 42.1,
+   "avg6": 41.8,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "GRPO",
+   "run": "grpo_pt17b",
+   "step": 120,
+   "benches": {
+    "aime24": {
+     "acc": 28.23,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 21.46,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 56.25,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 82.72,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 52.63,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 34.4,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 47.16,
+   "avg6": 45.95,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "OPD",
+   "run": "opd_1p7b",
+   "step": 80,
+   "benches": {
+    "aime24": {
+     "acc": 35.73,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 22.71,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 63.52,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 86.19,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 56.81,
+     "n_problems": 675,
+     "n_rows": 21600,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 37.84,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 52.04,
+   "avg6": 50.47,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "TRD",
+   "run": "trd_pt17b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 24.58,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 17.92,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 49.85,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 78.99,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 46.67,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 32.58,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 42.84,
+   "avg6": 41.77,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "FastOPD",
+   "run": "fastopd8192_1p7b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 42.71,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 25.62,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 66.11,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 87.15,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 58.54,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 36.74,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 55.4,
+   "avg6": 52.81,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "SKD",
+   "run": "skd_pt17b",
+   "step": 120,
+   "benches": {
+    "aime24": {
+     "acc": 25.62,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 21.77,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 56.74,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 82.25,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 52.27,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 36.21,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 46.59,
+   "avg6": 45.81,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "RelayOPD",
+   "run": "relay_1p7b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 40.21,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 29.17,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 68.11,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 87.95,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 59.06,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 37.18,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 56.36,
+   "avg6": 53.61,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "Lucid-OPD",
+   "run": "lucid_T1donly_pt17b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 40.31,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 29.17,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 66.34,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 87.11,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 58.86,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 37.71,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 55.73,
+   "avg6": 53.25,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "RelayOPD@60",
+   "run": "relay_1p7b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 40.31,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 29.17,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 66.0,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 87.74,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 58.45,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 37.52,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 55.8,
+   "avg6": 53.2,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "gatedB@60",
+   "run": "gatedB_1p7b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 40.21,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 26.77,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 65.59,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 87.46,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 58.07,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 37.5,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 55.01,
+   "avg6": 52.6,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "1.7B",
+   "method": "Lucid-T1-from0",
+   "run": "lucid_T1_from0_pt17b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 33.23,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 24.06,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 60.81,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 84.41,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": null,
+    "minerva": null
+   },
+   "avg4": 50.63,
+   "avg6": null,
+   "complete_math4": true,
+   "complete_all6": false
+  },
+  {
+   "scale": "1.7B",
+   "method": "Teacher",
+   "run": "teacher_4b_pt",
+   "step": 0,
+   "benches": {
+    "aime24": {
+     "acc": 63.23,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 49.17,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 86.03,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 94.55,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 72.94,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 45.2,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 73.25,
+   "avg6": 68.52,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "Student",
+   "run": "student_0p6b_pt",
+   "step": 0,
+   "benches": {
+    "aime24": {
+     "acc": 1.67,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 1.04,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 19.01,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 45.34,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 16.91,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 12.52,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 16.77,
+   "avg6": 16.08,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "SFT",
+   "run": "sft_pt06b",
+   "step": 139,
+   "benches": {
+    "aime24": {
+     "acc": 4.38,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 6.25,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 30.87,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 58.47,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 27.94,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 15.83,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 24.99,
+   "avg6": 23.96,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "KD",
+   "run": "seqkd_pt06b",
+   "step": 139,
+   "benches": {
+    "aime24": {
+     "acc": 3.75,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 6.04,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 29.33,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 57.67,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 27.23,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 15.95,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 24.2,
+   "avg6": 23.33,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "GRPO",
+   "run": "grpo_pt06b",
+   "step": 80,
+   "benches": {
+    "aime24": {
+     "acc": 2.92,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 4.79,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 25.26,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 54.32,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 24.65,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 15.49,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 21.82,
+   "avg6": 21.24,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "OPD",
+   "run": "opd_pt06b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 8.75,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 14.37,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 45.97,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 72.58,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 42.34,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 22.91,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 35.42,
+   "avg6": 34.49,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "TRD",
+   "run": "trd_pt06b",
+   "step": 139,
+   "benches": {
+    "aime24": {
+     "acc": 3.65,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 5.0,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 28.46,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 56.58,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 25.64,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 14.98,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 23.42,
+   "avg6": 22.39,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "FastOPD",
+   "run": "fastopd8192_pt06b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 13.54,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 17.81,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 48.08,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 74.67,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 44.8,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 23.92,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 38.52,
+   "avg6": 37.14,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "SKD",
+   "run": "skd_pt06b",
+   "step": 40,
+   "benches": {
+    "aime24": {
+     "acc": 6.46,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 11.46,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 36.52,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 64.82,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 33.24,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 19.23,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 29.81,
+   "avg6": 28.62,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "RelayOPD",
+   "run": "relay_pt06b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 15.21,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 18.96,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 50.41,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 76.51,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": {
+     "acc": 45.43,
+     "n_problems": 675,
+     "n_rows": 10800,
+     "samples_per_problem": 16.0,
+     "complete": true
+    },
+    "minerva": {
+     "acc": 25.67,
+     "n_problems": 272,
+     "n_rows": 4352,
+     "samples_per_problem": 16.0,
+     "complete": true
+    }
+   },
+   "avg4": 40.27,
+   "avg6": 38.7,
+   "complete_math4": true,
+   "complete_all6": true
+  },
+  {
+   "scale": "0.6B",
+   "method": "Lucid-OPD",
+   "run": "lucid_T1donly_pt06b",
+   "step": 60,
+   "benches": {
+    "aime24": {
+     "acc": 7.29,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "aime25": {
+     "acc": 11.56,
+     "n_problems": 30,
+     "n_rows": 960,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "amc23": {
+     "acc": 38.55,
+     "n_problems": 83,
+     "n_rows": 2656,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "math500": {
+     "acc": 67.79,
+     "n_problems": 500,
+     "n_rows": 16000,
+     "samples_per_problem": 32.0,
+     "complete": true
+    },
+    "olympiad": null,
+    "minerva": null
+   },
+   "avg4": 31.3,
+   "avg6": null,
+   "complete_math4": true,
+   "complete_all6": false
+  }
+ ]
+}

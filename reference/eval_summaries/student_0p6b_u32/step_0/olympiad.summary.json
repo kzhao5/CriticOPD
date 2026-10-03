@@ -1,0 +1,49 @@
+{
+  "tag": "olympiad",
+  "model": "/home/kzhao2/OPD/model/Qwen3-0.6B",
+  "bench": "olympiad",
+  "n_problems": 675,
+  "n_samples": 8,
+  "avg@k": 0.16944444444444445,
+  "pass@1": 0.16296296296296298,
+  "pass@k": 0.4266666666666667,
+  "wall_seconds": 502.81305384635925,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 675,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "olympiad",
+      "model": "/home/kzhao2/OPD/model/Qwen3-0.6B",
+      "bench": "olympiad",
+      "n_problems": 675,
+      "n_samples": 8,
+      "avg@k": 0.16944444444444445,
+      "pass@1": 0.16296296296296298,
+      "pass@k": 0.4266666666666667,
+      "wall_seconds": 502.81305384635925,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 675,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}

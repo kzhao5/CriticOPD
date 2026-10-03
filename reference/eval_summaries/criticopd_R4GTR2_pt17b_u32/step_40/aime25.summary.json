@@ -1,0 +1,12 @@
+{
+  "tag": "aime25",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/criticopd_R4GTR2_pt17b/global_step_40/actor/huggingface",
+  "bench": "aime25",
+  "n_problems": 30,
+  "n_samples": 32,
+  "avg@k": 0.28125,
+  "pass@1": 0.266667,
+  "pass@k": 0.6,
+  "wall_seconds": 1129.8991360664368,
+  "n_shards": 2
+}

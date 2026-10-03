@@ -1,0 +1,12 @@
+{
+  "tag": "mbpp",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/skd_pt17b/global_step_120/actor/huggingface",
+  "bench": "mbpp",
+  "n_problems": 378,
+  "n_samples": 4,
+  "avg@k": 0.0,
+  "pass@1": 0.0,
+  "pass@k": 0.0,
+  "wall_seconds": 399.31675457954407,
+  "n_shards": 1
+}

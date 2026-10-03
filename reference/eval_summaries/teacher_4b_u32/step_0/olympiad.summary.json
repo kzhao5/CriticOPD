@@ -1,0 +1,12 @@
+{
+  "tag": "olympiad",
+  "model": "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507",
+  "bench": "olympiad",
+  "n_problems": 675,
+  "n_samples": 8,
+  "avg@k": 0.722593,
+  "pass@1": 0.712593,
+  "pass@k": 0.835556,
+  "wall_seconds": 37882.92643690109,
+  "n_shards": 1
+}

@@ -1,0 +1,12 @@
+{
+  "tag": "mmlu_mini",
+  "model": "/home/kzhao2/Relay-OPD/outputs/checkpoints/trd_pt17b/global_step_40/actor/huggingface",
+  "bench": "mmlu_mini",
+  "n_problems": 1998,
+  "n_samples": 4,
+  "avg@k": 0.612237,
+  "pass@1": 0.615115,
+  "pass@k": 0.82032,
+  "wall_seconds": 493.2328269481659,
+  "n_shards": 1
+}

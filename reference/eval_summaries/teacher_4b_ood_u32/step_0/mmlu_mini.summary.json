@@ -1,0 +1,12 @@
+{
+  "tag": "mmlu_mini",
+  "model": "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507",
+  "bench": "mmlu_mini",
+  "n_problems": 1998,
+  "n_samples": 4,
+  "avg@k": 0.800926,
+  "pass@1": 0.794294,
+  "pass@k": 0.861862,
+  "wall_seconds": 1809.8165712356567,
+  "n_shards": 1
+}

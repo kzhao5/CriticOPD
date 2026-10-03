@@ -1,0 +1,49 @@
+{
+  "tag": "minerva",
+  "model": "/home/kzhao2/OPD/model/Qwen3-0.6B",
+  "bench": "minerva",
+  "n_problems": 272,
+  "n_samples": 8,
+  "avg@k": 0.13694852941176472,
+  "pass@1": 0.13970588235294118,
+  "pass@k": 0.3602941176470588,
+  "wall_seconds": 49.05151128768921,
+  "settings": {
+    "max_new": 32768,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "disable_thinking": true,
+    "shard_id": 0,
+    "num_shards": 1,
+    "total_problems_before_shard": 272,
+    "spec": null,
+    "dp_size": 1,
+    "tp_per_shard": 1
+  },
+  "shards": [
+    {
+      "tag": "minerva",
+      "model": "/home/kzhao2/OPD/model/Qwen3-0.6B",
+      "bench": "minerva",
+      "n_problems": 272,
+      "n_samples": 8,
+      "avg@k": 0.13694852941176472,
+      "pass@1": 0.13970588235294118,
+      "pass@k": 0.3602941176470588,
+      "wall_seconds": 49.05151128768921,
+      "settings": {
+        "max_new": 32768,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "seed": 42,
+        "disable_thinking": true,
+        "shard_id": 0,
+        "num_shards": 1,
+        "total_problems_before_shard": 272,
+        "spec": null
+      },
+      "opd_stats": {}
+    }
+  ]
+}
