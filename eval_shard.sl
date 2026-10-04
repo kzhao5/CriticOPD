@@ -31,7 +31,22 @@ for _b in ${BENCHES//,/ }; do
     exit 1
   fi
 done
-echo "===== $RUN@$STEP shard $SHARD_BASE/${NUM_SHARDS_TOTAL} benches=${BENCHES} ====="
+# 同一分片会同时向多组分区(不同 QOS)各交一个副本:先开始的拿锁并取消其余排队副本;
+# 锁的持有者已不在队列里(例如被节点在 2 秒内杀掉)时,后来者接手。
+mkdir -p "$_OD/shard_${SHARD_BASE:-0}"
+_LOCK="$_OD/shard_${SHARD_BASE:-0}/.${BENCHES//,/_}.lock"
+if ! mkdir "$_LOCK" 2>/dev/null; then
+  _holder=$(cat "$_LOCK/job" 2>/dev/null)
+  if [ -n "$_holder" ] && [ "$_holder" != "${SLURM_JOB_ID:-}" ] && squeue -h -j "$_holder" -t R 2>/dev/null | grep -q .; then
+    echo "另一个副本 $_holder 正在跑这个分片,退出"; exit 0
+  fi
+  rm -rf "$_LOCK"; mkdir "$_LOCK" 2>/dev/null || { echo "抢锁失败,退出"; exit 0; }
+fi
+echo "${SLURM_JOB_ID:-}" > "$_LOCK/job"
+for _j in $(squeue -h -u "$USER" -n "${SLURM_JOB_NAME:-none}" -t PD -o %i 2>/dev/null); do
+  [ "$_j" != "${SLURM_JOB_ID:-}" ] && scancel "$_j" 2>/dev/null
+done
+echo "===== $RUN@$STEP shard $SHARD_BASE/${NUM_SHARDS_TOTAL} benches=${BENCHES} on $(hostname) ====="
 # 编译缓存放节点本地:多个评测 job 同时写共享的 ~/.cache/vllm(NFS)会偶发 Errno 521/116,
 # vLLM 引擎初始化直接失败(2026-10-02 一小时内 3 个 job)。每个 job 用自己的本地目录。
 _LC=${TMPDIR:-/tmp}/kzhao2_compile_${SLURM_JOB_ID:-$$}

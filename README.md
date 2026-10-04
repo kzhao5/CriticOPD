@@ -6,9 +6,11 @@
 - 我们对上游的全部改动:`docs/upstream_diff.patch`(改了 19 个文件),另新增 3 个文件:`relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(CriticOPD 主体)、`relay-opd/verl/utils/semantic_eos.py`、`relay-opd/opd/patches/tb_steer_traj.py`。
 - 所有脚本里的路径都是我们集群上的绝对路径,需要按「七、需要替换的路径」改成你的。
 
-> **2026-10-03 更新:CriticOPD 的最终算法改为「列出全部错误、在最后一个错误处断开」(`criticopd/submit_arm.sh` 里的 `ARM=R4GTKL`,即在下文 R4GT 的开关上加 `CRITIC_OPD_KERR=last`),不再是只找第一个错误的 R4GT。**
-> 批改改用多错误提示词 `CRITIC_SYS_MULTI`,反馈依次列出各个错误;反馈里写出标准答案的错误先去掉再选断点(`drop_leaky`)。
-> 另外我们发现多错误批改有约 25% 撞到 1024 token 的输出上限,正在决定是否调大上限后重跑;**CriticOPD 请等这一版确认后再跑,baseline 不受影响,可以先跑。**
+> **CriticOPD 最终版(2026-10-04 确定,跨模型请用这一版):** 批改老师列出**全部**错误(至多 5 个),学生在**最后一个**错误处断开、看着依次列出的全部反馈续写。
+> 启动:`ARM=R4GTKL2K bash criticopd/submit_arm.sh`,或 `ONLY=critic bash multiseed/submit.sh`(多 seed,训完自动评测)。
+> 与早期的 R4GT(只找第一个错误)相比只多三处:多错误提示词 `CRITIC_SYS_MULTI`(`CRITIC_OPD_KERR=last`);反馈里写出标准答案的错误先去掉(`drop_leaky`);
+> 批改输出上限 2048(`CRITIC_OPD_CRITIC_TOKENS=2048`),仍被截断时丢掉最后那条没写完的错误(`drop_incomplete_tail`)。
+> 我们的 Qwen3-1.7B 结果:R4GT@40 六项 52.35;全部错误(上限 1024)@40 52.99;最终版正在跑 3 个 seed。
 
 ## 目录
 
@@ -41,7 +43,7 @@
 | FastOPD | `opd/scripts/baselines/fastopd/8192.sh` | 同 OPD,回答上限 8192 | `fastopd8192_1p7b` @60 | `fastopd8192_pt06b` @40 |
 | SKD | `opd/scripts/baselines/skd.sh` | 学生起草、teacher top-5 接受,top-128 前向 KL | `skd_pt17b` @120 | `skd_pt06b` @40 |
 | RelayOPD | `opd/scripts/relay_opd/train.sh` | `relay_opd` | `relay_1p7b` @40 | `relay_pt06b` @60 |
-| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二) | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_R4GTKL_pt17b` @40(六项 52.99);k=1 版 `criticopd_R4GT_pt17b` @40(52.35) | 尚未跑 |
+| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二) | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_final_pt17b_seed{42,43,44}` @40(进行中);上限 1024 的同一算法 `criticopd_R4GTKL_pt17b` @40 为 52.99 | `criticopd_final_pt06b_seed{42,43,44}`,训到 60,评测 40 和 60(进行中) |
 
 **所选步数**:每个方法在训练中评测过的 checkpoint 里,取数学前四项(AIME24、AIME25、AMC23、MATH500)平均最高的一个。所有方法都是恒定学习率,新 seed 只需训到这一步即可,与训到更远再回看完全等价。
 
@@ -66,26 +68,30 @@ SIZE=0.6B bash multiseed/submit.sh     # 0.6B
 
 ## 二、CriticOPD 的实现位置
 
-全部在 `relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(行号以本仓库为准),由环境变量开关控制。主表的 CriticOPD 对应 `criticopd/submit_arm.sh` 里的 `ARM=R4GT`:
+全部在 `relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(行号以本仓库为准),由环境变量开关控制。最终版对应 `criticopd/submit_arm.sh` 里的 `ARM=R4GTKL2K`:
 
 ```
 CRITIC_OPD_ENABLE=1 CRITIC_OPD_USE_FEEDBACK=1 CRITIC_OPD_SPLICE=after CRITIC_OPD_LOSS=fb CRITIC_OPD_GIVE_GT=1
-CRITIC_OPD_TRUNC=0 CRITIC_OPD_KEEP_CORRECT=0 CRITIC_OPD_ANNEAL= CRITIC_OPD_REF_FILE= CRITIC_OPD_KERR=   ROLLOUT_N=1
+CRITIC_OPD_KERR=last CRITIC_OPD_CRITIC_TOKENS=2048
+CRITIC_OPD_TRUNC=0 CRITIC_OPD_KEEP_CORRECT=0 CRITIC_OPD_ANNEAL= CRITIC_OPD_REF_FILE=   ROLLOUT_N=1
 并在 Hydra 里设 actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent
 ```
 
 | 环节 | 位置 |
 |---|---|
-| 哪些 rollout 送去 critic | `run()` 第 616–620 行:写完的用标准答案判分,答错才送;被截断(写满 16384)的在 `GIVE_GT=1` 时也送,critic 认为路线没问题会回 `NONE` |
-| 解答切段 | `segment()` 第 153 行(按空行切段) |
-| critic 提示词 | `_GT_RULES` / `CRITIC_SYS_GT` / `CRITIC_SYS_GT_CAPPED`(第 47–80 行);用户消息的拼法在第 664 行附近(题目 + 标准答案 + 编号后的各段) |
-| 输出解析(SEGMENT / QUOTE / FEEDBACK / NONE) | `parse_critic()` 第 166 行:按引文在原文中定位,定位不到才退回段号;`NONE` 返回不介入 |
-| 保留前缀、插入反馈 | 第 698–705 行:保留到出错段(含出错段,`SPLICE=after`),按 token 对齐截断;在前缀后接 `FEEDBACK_TMPL`(第 145 行)让学生续写,续写预算 = 16384 − 前缀长度 |
-| 训练序列去掉反馈 | 第 724–725 行:训练序列 = 保留前缀(mask 0)+ 学生续写(mask 1),反馈文字不进序列,只对续写算损失 |
-| teacher 带反馈打分(L_fb) | 第 756–761 行把「题目 + 前缀 + 反馈」交出;`relay-opd/verl/experimental/agent_loop/agent_loop.py` 第 1033 行起用它让 teacher 重新给续写 token 打分,覆盖训练序列里续写那几行的 teacher logprob |
-| 训练指标 | `relay-opd/verl/trainer/ppo/ray_trainer.py` 第 2107 行起(`critic_opd/repair_seq_frac`、`repair_tok_frac`) |
+| 哪些 rollout 送去 critic | `run()` 第 626–630 行:写完的用标准答案判分,答错才送;被截断(写满 16384)的在 `GIVE_GT=1` 时也送,critic 认为路线没问题会回 `NONE` |
+| 解答切段 | `segment()`(按空行切段) |
+| critic 提示词 | `_MULTI_RULES` / `CRITIC_SYS_MULTI` / `CRITIC_SYS_MULTI_CAPPED`(第 190–220 行);用户消息在第 668 行附近(题目 + 标准答案 + 编号后的各段) |
+| critic 输出上限与截断 | 第 686–693 行:上限 `max(1024, CRITIC_OPD_CRITIC_TOKENS)` = 2048;撞到上限时 `drop_incomplete_tail()`(第 246 行)去掉最后那块没写完的错误 |
+| 输出解析(ERROR / SEGMENT / QUOTE / FEEDBACK / NONE) | `parse_critic_multi()` 第 222 行:按 `SEGMENT:` 分块,每块按引文在原文中定位,定位不到才退回段号;去重、按段号排序,至多 5 个;`NONE` 返回空 |
+| 去掉泄露答案的错误 | 第 699 行 `drop_leaky()`(第 261–278 行):反馈里出现标准答案(独立成词)而学生原文里没有的,整条去掉 |
+| 选断点、拼反馈 | 第 703 行 `kerr_select(errs, "last")` 取全部错误,断点为最后一个;`kerr_feedback()`(第 279 行)把各条反馈编号拼成一段 |
+| 保留前缀、插入反馈 | 第 714 行起:保留到最后一个错误所在段(含该段),按 token 对齐截断;在前缀后接 `FEEDBACK_TMPL` 让学生续写,续写预算 = 16384 − 前缀长度 |
+| 训练序列去掉反馈 | 第 740–741 行:训练序列 = 保留前缀(mask 0)+ 学生续写(mask 1),反馈文字不进序列,只对续写算损失 |
+| teacher 带反馈打分(L_fb) | 第 775 行把「题目 + 前缀 + 反馈」交出;`relay-opd/verl/experimental/agent_loop/agent_loop.py` 第 1033 行起用它让 teacher 重新给续写 token 打分,覆盖训练序列里续写那几行的 teacher logprob |
+| 训练指标 | `relay-opd/verl/trainer/ppo/ray_trainer.py` 第 2107 行起(`critic_opd/repair_seq_frac`、`repair_tok_frac`);agent loop 的计数里 `kerr_k*`(实际用到几个错误)、`kerr_leak_drop`、`kerr_trunc_drop` |
 
-critic 就是 teacher 本身(Qwen3-4B-Instruct-2507),贪心解码,输出上限 512。论文附录里的全部提示词与上面的常量逐字一致。`critic_opd_agent_loop.py` 里其余开关(`KERR`、`REF_FILE`、`TRUNC`、`KEEP_CORRECT`、`ANNEAL` 等)是论文之后的消融,默认关闭,不影响主表配置。
+critic 就是 teacher 本身(Qwen3-4B-Instruct-2507),贪心解码(温度 0)。只找第一个错误的旧版(R4GT)用 `CRITIC_SYS_GT` 和 `parse_critic()`,输出上限 512。其余开关(`REF_FILE`、`TRUNC`、`KEEP_CORRECT`、`ANNEAL` 等)是消融,默认关闭。
 
 ## 三、数据
 
@@ -145,7 +151,7 @@ torch 2.11.0(CUDA 13.0)、vLLM 0.21.0、transformers 5.15.0、ray 2.57.0、sympy
 ## 八、换成 Gemma 3 时要改的地方
 
 - **停止符**:Qwen 的 `151643` / `151645` 写死在 `paper_baselines/gen_data.sl`(`GEN_STOP_TOKEN_IDS`)、`relay-opd/opd/data/generate_teacher_trajectories.py`、`generate_trd_trajectories.py`、`submit_ood.sh`、`criticopd/` 的离线分析脚本里。训练时 rollout 用的是模型自带的 EOS,需要确认 Gemma 的 `generation_config.json` 包含 `<end_of_turn>`(id 106)。
-- **critic 的 system 角色**:`critic_opd_agent_loop.py` 第 642、658、664、670 行用 `{"role": "system"}` 传 critic 提示词。Gemma 3 的模板会把 system 合并进第一条 user 消息,critic 实际看到的输入格式会变,需要先确认。
+- **critic 的 system 角色**:`critic_opd_agent_loop.py` 构造 critic 消息时用 `{"role": "system"}` 传提示词(最终版在第 668 行)。Gemma 3 的模板会把 system 合并进第一条 user 消息,critic 实际看到的输入格式会变,需要先确认。
 - **思考模式开关**:`enable_thinking` / `disable_thinking` 是 Qwen 模板专用参数,出现在 `opd/eval/math_benchmarks.py`、`opd/scripts/evaluation/math.sh`、各训练脚本和造数据脚本里,换模型时去掉或忽略。
 - Gemma 3 的 4B 以上是多模态模型类,训练和 vLLM 里需要按纯文本加载。
 

@@ -240,6 +240,16 @@ def parse_critic_multi(text, segs, max_err=5):
     return errs[:max_err]
 
 
+_RE_LAST_BLOCK = re.compile(r"(?i)(?:ERROR\s*\d+\s*:?\s*)?SEGMENT\s*:")
+
+
+def drop_incomplete_tail(text):
+    """批改输出撞到长度上限时,最后一块(从最后一个 SEGMENT: 起)一定没写完:整块去掉。
+    只在确认被截断时调用;没有任何 SEGMENT: 时原样返回。"""
+    ms = list(_RE_LAST_BLOCK.finditer(text))
+    return text[:ms[-1].start()] if ms else text
+
+
 def kerr_select(errs, kerr):
     """在第 k 个错误处断开;错误数少于 k 时取最后一个。kerr 为 '1'/'2'/'3'/.../'last'。"""
     if not errs:
@@ -673,10 +683,16 @@ class CriticOpdAgentLoop(AgentLoopBase):
             if cids is None:
                 cids = self.tokenizer.apply_chat_template(cmsg, add_generation_prompt=True, tokenize=False)
                 cids = self.tokenizer.encode(cids, add_special_tokens=False)
-            ctok = await self._teacher_generate(
-                cids, max(1024, self.critic_max_tokens) if self.kerr else self.critic_max_tokens)
+            _cmax = max(1024, self.critic_max_tokens) if self.kerr else self.critic_max_tokens
+            ctok = await self._teacher_generate(cids, _cmax)
             if ctok:
                 ctext = self.tokenizer.decode(ctok, skip_special_tokens=True)
+                if self.kerr and len(ctok) >= _cmax:
+                    # 多错误批改被截断:最后一条反馈没写完,学生会带着半句话续写 —— 去掉这一块,
+                    # 在前一个完整的错误处断开(离线:上限 1024 时 25.6% 被截断,2048 时 5.4%)
+                    ctext = drop_incomplete_tail(ctext)
+                    stats["critic_truncated"] = 1
+                    self._tally(kerr_trunc_drop=1)
                 if self.kerr:
                     errs = parse_critic_multi(ctext, segs)
                     n_raw = len(errs)

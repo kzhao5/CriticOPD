@@ -14,12 +14,12 @@ TPQ=$PWD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet
 DPQ=$PWD/outputs/offline_data/trd_pt17b/trd_trajectories.parquet
 DAPO=/home/kzhao2/OPD/datasets/dapo-math-17k.parquet
 REG=multiseed/jobs.tsv
-PARTS=("--partition=cs --qos=cs" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5")   # cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
+PARTS=("--partition=cs --qos=cs --exclude=cs-1-2" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5")   # cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
 COMMON="--parsable --gres=gpu:4 --cpus-per-task=32 --mem=350G --time=${SEG_TIME:-23:30:00}"   # 运行中计费额度按「计费 x 申请时长」算,短任务用 SEG_TIME 缩短
 STUDENT=/home/kzhao2/OPD/model/Qwen3-1.7B; TP=""          # TP:0.6B 的任务名前缀,避免与 1.7B 重名
 if [ "$SIZE" = 0.6B ]; then
   STUDENT=/home/kzhao2/OPD/model/Qwen3-0.6B; TP=6
-  PARTS=("--partition=cs2,cs --qos=cs" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1")
+  PARTS=("--partition=cs2,cs --qos=cs --exclude=cs-1-2" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5")   # 0.6B 不报算力,哪里空就在哪里跑
   DPQ=$PWD/outputs/offline_data/trd_pt06b/trd_trajectories.parquet      # 0.6B 学生自己的改写数据
 fi
 
@@ -33,7 +33,14 @@ SPEC17=(
   "fastopd  opd/scripts/baselines/fastopd/8192.sh   60 $DAPO fastopd8192_1p7b  2 arg"
   "relay    opd/scripts/relay_opd/train.sh          40 $DAPO relay_1p7b        2 arg"
   "sft      opd/scripts/baselines/sft.sh            40 $TPQ  sft_pt17b         2 env"
+  "critic   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_final_pt17b 2 arg"
 )
+# CriticOPD 最终版:列出全部错误、在最后一个错误处断开(R4GTKL),批改输出上限 2048,
+# 截断时丢掉最后那条没写完的错误。其余开关与 criticopd/submit_arm.sh 的 R4GTKL 逐项一致。
+CRIT_ENV=",ROLLOUT_N=1,CRITIC_OPD_ENABLE=1,CRITIC_OPD_USE_FEEDBACK=1,CRITIC_OPD_SPLICE=after,CRITIC_OPD_LOSS=fb,CRITIC_OPD_GIVE_GT=1"
+CRIT_ENV="$CRIT_ENV,CRITIC_OPD_TRUNC=0,CRITIC_OPD_KEEP_CORRECT=0,CRITIC_OPD_ANNEAL=,CRITIC_OPD_REF_FILE=,CRITIC_OPD_KERR=last"
+CRIT_ENV="$CRIT_ENV,CRITIC_OPD_CRITIC_TOKENS=2048,AGENT_WORKERS=2,MAX_RESPONSE_LENGTH=16384"
+CRIT_ARGS="actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent ray_kwargs.ray_init.num_cpus=32"
 #  0.6B:所选步数按主表;SFT/KD 用与 1.7B 同一份 teacher 数据(两者分词器和对话模板完全相同)
 SPEC06=(
   "seqkd    opd/scripts/baselines/seqkd.sh         139 $TPQ  seqkd_pt06b       3 env"
@@ -44,12 +51,15 @@ SPEC06=(
   "opd      opd/scripts/baselines/opd.sh            40 $DAPO opd_pt06b         2 arg"
   "fastopd  opd/scripts/baselines/fastopd/8192.sh   40 $DAPO fastopd8192_pt06b 2 arg"
   "skd      opd/scripts/baselines/skd.sh            40 $DAPO skd_pt06b         2 env"
+  "critic   opd/scripts/baselines/opd.sh            60 $DAPO criticopd_final_pt06b 2 arg"
 )
+#  0.6B 的 CriticOPD 没有先验峰值:训到 60,在 40 和 60 都评测(第 40 步由附加守护评测,见 eval_guard.sh 的 GUARD_NO_RESUBMIT)
 if [ "$SIZE" = 0.6B ]; then SPEC=("${SPEC06[@]}"); else SPEC=("${SPEC17[@]}"); fi
 sb() { if [ "$DRY" = 1 ]; then echo "DRY sbatch $*" >&2; echo "9999$RANDOM"; else sbatch "$@"; fi; }
 
 for spec in "${SPEC[@]}"; do
   read -r m script S data base nseg how <<< "$spec"
+  nseg=$((nseg + ${NSEG_ADD:-0}))      # 节点会在作业启动 2 秒内把它杀掉,每被杀一次就耗掉一段,多备几段
   [ -n "$ONLY" ] && ! grep -qw "$m" <<< "$ONLY" && continue
   for seed in $SEEDS; do
     run=${base}_seed$seed; tag=$TP$m$seed; out=$PWD/outputs/checkpoints/$run
@@ -62,6 +72,7 @@ for spec in "${SPEC[@]}"; do
     envs="$envs,ACTOR_GPUS_PER_NODE=2,TEACHER_GPUS_PER_NODE=2,NEED_GPUS=4,SEED=$seed,SFT_DATA_SEED=$seed,TARGET_STEP=$S$stepv"
     [ "$m" = sft ] && envs="$envs,NUM_GPUS=4"
     [ "$m" = grpo ] && envs="$envs,N_GPUS=4"          # grpo.sh 读 N_GPUS(默认 8)
+    [ "$m" = critic ] && { envs="$envs$CRIT_ENV"; extra="$extra $CRIT_ARGS"; }
     prev=""
     for seg in $(seq 1 $nseg); do
       dep=""; [ -n "$prev" ] && dep="--dependency=afterany:$prev"

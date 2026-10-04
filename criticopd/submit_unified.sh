@@ -23,11 +23,16 @@ for SPEC in olympiad:8:32768:34817:4 amc23:32:32768:34817:4 aime24:32:32768:3481
     echo "$QUEUED" | grep -qx "$NAME" && { echo "  [skip] $NAME 已在队列"; continue; }
     [ -f "$OD/shard_$K/$B.summary.json" ] && { echo "  [skip] $NAME 分片已完成"; continue; }
     # cs QOS 能抢占 gstandby/standby;cs-1-2 疑有残留进程占卡,先排除。
-    J=$(sbatch --parsable $DEP --partition=cs,cs2,cs3 --qos=cs --exclude=cs-1-2,cs-1-3 --cpus-per-task=4 --mem=64G \
-      --gres=gpu:1 --time=10:00:00 --job-name=$NAME \
-      --output=/home/kzhao2/Relay-OPD/logs/%x_%j.log \
-      --export=ALL,RUN=$RUN,OUT_RUN=${OUT_RUN},STEP=$STEP,BENCHES=$B,N_SAMPLES=$NS,MAX_NEW=$MN,MAX_MODEL_LEN=$ML,SHARD_BASE=$K,NUM_SHARDS_TOTAL=$NSH \
-      eval_shard.sl)
-    echo "  $NAME (${NS}x${MN}, 分片 $K/$NSH) -> $J"
+    # 评测不要求统一硬件:每个分片向四组分区(不同 QOS)各交一个副本,先开始的拿锁并取消其余(见 eval_shard.sl)。
+    # eng 只能用 gstandby(会被抢占后重新排队,评测分片从头重跑即可)。
+    for EP in "--partition=cs,cs2,cs3 --qos=cs --exclude=cs-1-2" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-5" \
+              "--partition=m13h,m13l --qos=gpu --exclude=m13h-1-1" "--partition=eng --qos=gstandby"; do
+      J=$(sbatch --parsable $DEP $EP --cpus-per-task=4 --mem=64G \
+        --gres=gpu:1 --time=10:00:00 --job-name=$NAME \
+        --output=/home/kzhao2/Relay-OPD/logs/%x_%j.log \
+        --export=ALL,RUN=$RUN,OUT_RUN=${OUT_RUN},STEP=$STEP,BENCHES=$B,N_SAMPLES=$NS,MAX_NEW=$MN,MAX_MODEL_LEN=$ML,SHARD_BASE=$K,NUM_SHARDS_TOTAL=$NSH \
+        eval_shard.sl) || continue
+      echo "  $NAME (${NS}x${MN}, 分片 $K/$NSH) -> $J"
+    done
   done
 done

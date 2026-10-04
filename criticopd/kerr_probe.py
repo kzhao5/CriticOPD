@@ -22,7 +22,8 @@ TEACHER = "/home/kzhao2/OPD/model/Qwen3-4B-Instruct-2507"
 TOKENIZER = "/home/kzhao2/OPD/model/Qwen3-1.7B"
 STOP_IDS = [151643, 151645]
 RLEN, SEED, K_REPAIR = 16384, 2468, 2
-KS = ["1", "2", "3", "last"]
+KS = os.environ.get("KERR_KS", "1 2 3 last").split()          # 截断对照实验只跑 1 和 last
+CRITIC_TOKENS = int(os.environ.get("KERR_CRITIC_TOKENS", "1024"))   # 批改输出上限(训练里是 1024)
 
 
 def jl(path): return [json.loads(l) for l in open(path)]
@@ -68,15 +69,16 @@ def stage_critic():
                                            f"Correct answer (reference only -- never reveal it): {r['gt']}\n\n"
                                            f"Student's solution, split into numbered segments:\n\n{body}"}]
         ids = tok.encode(tok.apply_chat_template(msg, add_generation_prompt=True, tokenize=False), add_special_tokens=False)
-        if len(ids) + 1024 > 40960: continue
+        if len(ids) + CRITIC_TOKENS > 40960: continue
         reqs.append({"prompt_token_ids": ids}); meta.append((r, segs))
     llm = LLM(model=TEACHER, dtype="bfloat16", gpu_memory_utilization=0.88, max_model_len=40960, enable_prefix_caching=True)
-    outs = llm.generate(reqs, SamplingParams(temperature=0.0, max_tokens=1024))
+    outs = llm.generate(reqs, SamplingParams(temperature=0.0, max_tokens=CRITIC_TOKENS))
     res = []
     for (r, segs), o in zip(meta, outs):
         t = o.outputs[0].text
         errs = M.parse_critic_multi(t, segs)
-        res.append({"prob": r["prob"], "rep": r["rep"], "n_seg": len(segs), "errs": errs, "critic_text": t})
+        res.append({"prob": r["prob"], "rep": r["rep"], "n_seg": len(segs), "errs": errs, "critic_text": t,
+                    "critic_tokens": len(o.outputs[0].token_ids), "truncated": o.outputs[0].finish_reason == "length"})
     jw(f"{OUT}/critic.jsonl", res)
     print(f"[critic] {len(res)} 条;至少找到 1 个错误 {sum(bool(x['errs']) for x in res)}")
 

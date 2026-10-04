@@ -20,6 +20,8 @@ if [ ! -f $CK/actor/huggingface/config.json ] && [ ! -f $CK/huggingface/config.j
     [ $NP -gt 300 ] && { log TRAIN_TIMEOUT "等了 150 小时仍无 checkpoint"; exit 1; }
     again --begin=now+30minutes >/dev/null; exit 0
   fi
+  # 附加守护(只负责评测另一个 checkpoint)不重提交训练,交给主守护,避免重复训练
+  [ "${GUARD_NO_RESUBMIT:-0}" = 1 ] && { log TRAIN_MISSING "附加守护:训练已结束但没有 global_step_$STEP,不重提交(由主守护负责)"; exit 1; }
   # 训练链被意外打断(例如节点在启动 2 秒内把任务 root 杀掉):清掉失效的锁,重新提交整条训练链,最多 3 次
   RS=$R/outputs/checkpoints/$RUN/.resubmits; k=$(cat $RS 2>/dev/null || echo 0)
   if [ $k -lt 6 ]; then
@@ -30,7 +32,7 @@ if [ ! -f $CK/actor/huggingface/config.json ] && [ ! -f $CK/huggingface/config.j
     done
     seed=${TAG: -2}; m=${TAG%$seed}; size=1.7B
     [[ $m == 6* ]] && { size=0.6B; m=${m#6}; }                    # 0.6B 的任务名前缀是 6
-    (cd $R && SIZE=$size ONLY="$m" SEEDS="$seed" bash multiseed/submit.sh) >/dev/null 2>&1
+    (cd $R && SIZE=$size NSEG_ADD=2 ONLY="$m" SEEDS="$seed" bash multiseed/submit.sh) >/dev/null 2>&1
     log TRAIN_RESUBMIT "训练链中断且没有 global_step_$STEP,第 $((k + 1)) 次重新提交"; exit 0
   fi
   log TRAIN_FAILED "训练任务都已结束,但没有 global_step_$STEP(已重新提交 6 次)"; exit 1
@@ -65,7 +67,7 @@ else:
 PY
 )
 if [[ $CHK == OK* ]]; then log DONE "${CHK#OK }"; exit 0; fi
-if [ $TRY -ge 8 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 8 轮)"; exit 1; fi   # 集群会在启动 2 秒内 root 杀掉作业,多给几轮
+if [ $TRY -ge 12 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 12 轮)"; exit 1; fi   # 集群会在启动 2 秒内 root 杀掉作业,多给几轮
 
 # 3) 补交缺的分片
 OUT=$(cd $R && RUN=$RUN STEP=$STEP TAG=$TAG bash criticopd/submit_unified.sh 2>&1)
