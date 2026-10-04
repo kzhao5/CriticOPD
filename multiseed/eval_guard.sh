@@ -57,6 +57,12 @@ for b, (n, k) in want.items():
     if s["n_problems"] != n or s["n_samples"] != k:
         bad.append(f"{b}:{s['n_problems']}x{s['n_samples']}"); os.remove(f)   # 残缺汇总删掉,下一轮重汇
         continue
+    # 再数一遍合并后的逐条记录:必须正好是 题数 x 采样数(防止某个分片的生成文件不完整)
+    jf = f"{d}/{b}.jsonl"
+    rows = sum(1 for _ in open(jf)) if os.path.exists(jf) else -1
+    if rows != n * k:
+        bad.append(f"{b}:记录{rows}≠{n*k}"); os.remove(f)
+        continue
     acc[b] = 100 * s["avg@k"]
 if bad:
     print("BAD " + " ".join(bad))
@@ -67,10 +73,13 @@ else:
 PY
 )
 if [[ $CHK == OK* ]]; then log DONE "${CHK#OK }"; exit 0; fi
-if [ $TRY -ge 12 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 12 轮)"; exit 1; fi   # 集群会在启动 2 秒内 root 杀掉作业,多给几轮
+if [ $TRY -ge 20 ]; then log EVAL_FAILED "${CHK#BAD }(已重试 20 轮)"; exit 1; fi   # 集群会在启动 2 秒内 root 杀掉作业,多给几轮
 
 # 3) 补交缺的分片
-OUT=$(cd $R && RUN=$RUN STEP=$STEP TAG=$TAG bash criticopd/submit_unified.sh 2>&1)
+# 第二轮起推迟 10 分钟再开始:节点有时会在几分钟内把新放上去的作业全部 root 杀掉(2026-10-04 1:13-1:19
+# 一台节点杀了 457 个),不等的话几分钟就把重试轮数耗光
+SBX=""; [ $TRY -ge 1 ] && SBX="--begin=now+10minutes"
+OUT=$(cd $R && SB_EXTRA="$SBX" RUN=$RUN STEP=$STEP TAG=$TAG bash criticopd/submit_unified.sh 2>&1)
 J=$(echo "$OUT" | grep -oE '[0-9]{8}$' | xargs | tr ' ' ':')
 if [ -n "$J" ]; then
   log EVAL_SUBMIT "第 $((TRY + 1)) 轮 $(echo $J | tr ':' ' ' | wc -w) 片;此前 ${CHK#BAD }"

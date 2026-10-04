@@ -10,6 +10,8 @@ unset ROCR_VISIBLE_DEVICES HIP_VISIBLE_DEVICES 2>/dev/null || true
 source /etc/profile.d/lmod.sh 2>/dev/null || true
 module load miniforge3 2>/dev/null || true
 if command -v nvcc >/dev/null 2>&1; then export CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(command -v nvcc)")")}"; fi
+# 部分节点(例如 2026-10-04 的 dw-1-5)没有 /etc/profile.d/lmod.sh,module load 静默失败、找不到 conda:直接加载共享的 miniforge
+command -v conda >/dev/null 2>&1 || source /vapps/rhel9/x86_64/miniforge3/25.3.1-0/etc/profile.d/conda.sh
 eval "$(conda shell.bash hook)"; conda activate relay-opd
 export OPENSSL_CONF=/dev/null
 export MATH_GRADER_PATH=/home/kzhao2/Relay-OPD/relay-opd/opd/reward/grader

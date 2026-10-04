@@ -19,6 +19,8 @@ module load miniforge3 2>/dev/null || true
 # EXTRA_MODULES="cuda/12.8.1" supplies it; harmless on A100 nodes where it is unset.
 if [ -n "${EXTRA_MODULES:-}" ]; then module load ${EXTRA_MODULES} 2>/dev/null || true; fi
 if command -v nvcc >/dev/null 2>&1; then export CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(command -v nvcc)")")}"; echo "[cuda] nvcc=$(command -v nvcc) CUDA_HOME=$CUDA_HOME"; fi
+# 部分节点(例如 2026-10-04 的 dw-1-5)没有 /etc/profile.d/lmod.sh,module load 静默失败、找不到 conda:直接加载共享的 miniforge
+command -v conda >/dev/null 2>&1 || source /vapps/rhel9/x86_64/miniforge3/25.3.1-0/etc/profile.d/conda.sh
 eval "$(conda shell.bash hook)"; conda activate relay-opd
 export OPENSSL_CONF=/dev/null   # FIPS 兜底（opencv 已卸）
 # H200/sm90:环境自带的 nvidia-nccl-cu13 2.28.9 在 sm90 上第一个 all_reduce 就 segfault

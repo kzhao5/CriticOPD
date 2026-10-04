@@ -118,7 +118,7 @@ bash criticopd/agg_step.sh <RUN> <STEP>                                         
 | OlympiadBench | `data/bench/olympiadBench.parquet` | 675 | 8 |
 | Minerva Math | `data/bench/minerva.parquet` | 272 | 8 |
 
-采样:温度 1.0、top-p 1.0、生成上限 32768(`max_model_len` 34817)、seed 42,非思考模板;指标为 avg@k。评测代码 `relay-opd/opd/eval/math_benchmarks.py`,由 `relay-opd/opd/scripts/evaluation/math.sh` 调用,判分同上。分片合并后的 jsonl 里 `problem_idx` 是分片内的局部编号,做逐题配对时用 `problem_idx × 分片数 + 分片号`。`multiseed/eval_guard.sh` 会自动完成评测、汇总、核对题数和采样数、补交失败分片。
+采样:温度 1.0、top-p 1.0、生成上限 32768(`max_model_len` 34817)、seed 42,非思考模板;指标为 avg@k。评测代码 `relay-opd/opd/eval/math_benchmarks.py`,由 `relay-opd/opd/scripts/evaluation/math.sh` 调用,判分同上。分片合并后的 jsonl 里 `problem_idx` 是分片内的局部编号,做逐题配对时用 `problem_idx × 分片数 + 分片号`。`multiseed/eval_guard.sh` 会自动完成评测、汇总、核对、补交失败分片:每个 benchmark 的所有分片都在才合并(缺一片 `agg_shards.py` 拒绝合并),合并后核对题数、每题采样数,并数一遍逐条记录必须正好是「题数 × 采样数」;缺片只补交缺的那几片(第二轮起推迟 10 分钟,最多 20 轮)。评测分片会同时向多组分区排队,`eval_shard.sl` 里有锁,先开始的副本取消其余,同一分片不会重复跑。训练链见 `multiseed/submit.sh`;训完后 `train_segment.sl` 会取消多备的分段,`multiseed/reap.sh` 可手动清理。
 
 OOD(`submit_ood.sh` → `eval_ood.sl`;选择题 `eval_mc.sl`,代码 `score_code.sh`):每题 4 次采样,温度 1.0;选择题上限 8192,按 `\boxed{字母}` 判分;代码上限 4096,EvalPlus pass@1(base 与 plus 测试,每次运行前清空 EvalPlus 结果缓存)。数据:`mmlu_mini`(MMLU 按学科分层抽 2000/14042)、`mmlu_pro_2k`(MMLU-Pro 按类别分层抽 2000/12032)、`arc_c`(1172)、`obqa`(500)、`humanevalplus`(164)、`mbpp`(MBPP+,378)。完整协议写在 `results_final/ood_table.json` 的 `protocol` 字段里。
 

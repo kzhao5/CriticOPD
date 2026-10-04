@@ -38,4 +38,12 @@ for j in $(squeue -h -u "$USER" -n "$SLURM_JOB_NAME" -o %i); do
   [ "$j" != "$SLURM_JOB_ID" ] && scancel "$j" && echo "[segment] cancelled queued sibling $j"
 done
 echo "[segment] $EXP_ID seg$SEG starts on $(hostname) from step $latest"
-exec bash /home/kzhao2/Relay-OPD/run_method_freegpu.sl
+bash /home/kzhao2/Relay-OPD/run_method_freegpu.sl; _rc=$?
+# 训练已到目标步数:取消本运行还在排队的备用段,评测守护(依赖最后一段结束)就能马上开始
+_latest=$(cat "$OUTPUT_DIR/latest_checkpointed_iteration.txt" 2>/dev/null || echo 0)
+if [ "${_latest:-0}" -ge "$TARGET" ]; then
+  _pfx=${SLURM_JOB_NAME%_s*}_s
+  for _j in $(squeue -h -u "$USER" -t PD -o "%i %j" | awk -v t="$_pfx" 'index($2,t)==1 {print $1}'); do scancel "$_j"; done
+  echo "[segment] $EXP_ID 已训到 $_latest >= $TARGET,取消备用段"
+fi
+exit $_rc
