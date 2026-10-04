@@ -27,6 +27,7 @@
 | `data/` | 训练集 `dapo-math-17k.parquet`、全部评测集 `bench/`、离线造数据的参数摘要 |
 | `reference/` | 用来核对复现的参照:每步训练指标 `metrics/<run>.csv`、原始训练日志 `training_logs/`、69 个 checkpoint 的评测汇总 `eval_summaries/`、CriticOPD@40 的逐条生成 `eval_outputs/`、40 条 critic 输入输出样例 `critic_samples.jsonl` |
 | `results_final/` | 论文用的结果表(主表、OOD、消融)、算力统计与图 |
+| `diag2/`、`results_final/section2*/` | 论文 Section 2 的诊断实验:代码与结果(见「十、Section 2 诊断实验」) |
 | `env/` | `pip_freeze.txt`、`relay-opd.conda.yml` |
 
 ## 一、主表的方法、启动方式与所选 checkpoint
@@ -160,3 +161,31 @@ torch 2.11.0(CUDA 13.0)、vLLM 0.21.0、transformers 5.15.0、ray 2.57.0、sympy
 - verl 的数据顺序取决于 `data.dataloader_num_workers`:同一个 seed,8 个进程与单进程的顺序不同(都是确定的)。
 - 判分要放进子进程:sympy 遇到 `\boxed{10^{10^9}}` 这类答案会占住 GIL,线程超时也拦不住。
 - 我们集群上有节点会在作业启动 2 秒内由 root 杀掉作业(健康检查),`multiseed/eval_guard.sh` 会自动重交;这是集群问题,与代码无关。
+
+## 十、Section 2 诊断实验
+
+代码在 `diag2/`,结果在 `results_final/section2_main/`(主批次)和 `results_final/section2/`(主批次 + 扩充批次合并后的最终版)。每个结果目录里有 `SUMMARY.md`(全部数字的中文汇总)、`figs/`(图 2、图 3、图 3 备选、附录图)、`numbers.json`、`data/`(各状态的成功率、批改与判定原文、关闭点、方法断点;不含续写全文)和 `code/`(生成该结果的代码快照)。结果出来后会自动更新到这里。
+
+**设置**:与主实验相同。学生是主表 OPD 的 checkpoint(Qwen3-1.7B 非思考,`opd_1p7b` 第 80 步),teacher 是 Qwen3-4B-Instruct-2507,题目来自 DAPO-Math-17k。续写用温度 1.0,长度上限 16384,判分与训练相同。批改用最终方法的多错误提示词,但不给参考答案(给参考答案的版本只用于附录对照),截断与泄露处理与训练一致。逐条判断错误是否属实用 Qwen3-8B 思考模式(给参考答案)。
+
+**要回答的三个问题**
+1. 学生的错误轨迹上是否存在崩溃区间:从这些状态出发,teacher 和学生续写的成功率 $V^T$、$V^S$ 都很低,模仿 teacher 已没有教学意义。
+2. 在崩溃区间里,teacher 虽然续写不对,是否仍能指出学生的错误(保留批改能力)。
+3. 崩溃区间与「从第一个错误开始的区间」是什么关系:重合、包含还是错位。
+
+**实验**
+| 编号 | 内容 | 对应问题 |
+|---|---|---|
+| E1 | 150 条正确、150 条错误轨迹,每条约 8 个截断点,teacher 与学生各续写 16 次,得到 $V^T$、$V^S$;关闭点 = teacher 前 8 次成功率第一次低于 0.5 的截断点(曲线用另外 8 次) | 1 |
+| E2 | 续写是否落回学生原来的错误答案 | 1 |
+| E3 | OPD 每个 token 的 advantage 在关闭点前后是否不同 | 1 |
+| E4 | 截在关闭点前后的解答交给 critic 批改,并逐条判断列出的错误是否属实 | 2 |
+| E5 | 完整解答的批改:第一条错误相对关闭区间的位置(另有附录 C 原单错误提示词作对照) | 3 |
+| E6 | 从方法断点(最后一条错误之后)出发:teacher / 学生直接写、学生 + 通用提示、学生 + 全部反馈、teacher + 全部反馈 | 2 |
+| E7 | 带反馈重写的状态与被丢弃的原轨迹尾部,teacher 与学生的成功率 | 方法 |
+| E8 | 逐条判断 critic 列出的错误是否属实 | 2、3 |
+| E9 | 不看 critic 输出,由判定模型独立标注第一个错误 | 3 |
+| E10 | 在第一个错误(独立标注与 critic 各一)和最后一条错误的前后各截一刀,teacher 与学生各续写 16 次,判断崩溃从哪里开始 | 3 |
+
+**运行**:`bash diag2/pipeline.sh`(主批次全流程)→ `bash diag2/pipeline_ext.sh` 与 `pipeline_ext2.sh <closing 任务>`(扩充批次:其余错误轨迹)→ `bash diag2/pipeline_e10.sh <目录> <前缀>`(E9、E10)→ `python3 diag2/merge_out.py out out_b`(合并)→ `DIAG_OUT=<目录> python3 diag2/report.py`(数字与图)→ `python3 diag2/package.py <名字>`(打包)。各阶段是 `diag2/diag.py` 的子命令,含义见该文件开头的说明。
+
