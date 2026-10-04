@@ -6,6 +6,10 @@
 - 我们对上游的全部改动:`docs/upstream_diff.patch`(改了 19 个文件),另新增 3 个文件:`relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(CriticOPD 主体)、`relay-opd/verl/utils/semantic_eos.py`、`relay-opd/opd/patches/tb_steer_traj.py`。
 - 所有脚本里的路径都是我们集群上的绝对路径,需要按「七、需要替换的路径」改成你的。
 
+> **2026-10-03 更新:CriticOPD 的最终算法改为「列出全部错误、在最后一个错误处断开」(`criticopd/submit_arm.sh` 里的 `ARM=R4GTKL`,即在下文 R4GT 的开关上加 `CRITIC_OPD_KERR=last`),不再是只找第一个错误的 R4GT。**
+> 批改改用多错误提示词 `CRITIC_SYS_MULTI`,反馈依次列出各个错误;反馈里写出标准答案的错误先去掉再选断点(`drop_leaky`)。
+> 另外我们发现多错误批改有约 25% 撞到 1024 token 的输出上限,正在决定是否调大上限后重跑;**CriticOPD 请等这一版确认后再跑,baseline 不受影响,可以先跑。**
+
 ## 目录
 
 | 位置 | 内容 |
@@ -37,7 +41,7 @@
 | FastOPD | `opd/scripts/baselines/fastopd/8192.sh` | 同 OPD,回答上限 8192 | `fastopd8192_1p7b` @60 | `fastopd8192_pt06b` @40 |
 | SKD | `opd/scripts/baselines/skd.sh` | 学生起草、teacher top-5 接受,top-128 前向 KL | `skd_pt17b` @120 | `skd_pt06b` @40 |
 | RelayOPD | `opd/scripts/relay_opd/train.sh` | `relay_opd` | `relay_1p7b` @40 | `relay_pt06b` @60 |
-| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二) | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | `criticopd_R4GT_pt17b` @40 | 尚未跑 |
+| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二) | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_R4GTKL_pt17b` @40(六项 52.99);k=1 版 `criticopd_R4GT_pt17b` @40(52.35) | 尚未跑 |
 
 **所选步数**:每个方法在训练中评测过的 checkpoint 里,取数学前四项(AIME24、AIME25、AMC23、MATH500)平均最高的一个。所有方法都是恒定学习率,新 seed 只需训到这一步即可,与训到更远再回看完全等价。
 
