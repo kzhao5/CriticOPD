@@ -1,0 +1,129 @@
+\toprule
+\textbf{Method}
+& \textbf{AIME24}
+& \textbf{AIME25}
+& \textbf{AMC23}
+& \textbf{MATH500}
+& \textbf{OlympiadBench}
+& \textbf{Minerva}
+& \textbf{Avg}
+\\
+\midrule
+
+Teacher
+& 62.19 & 48.12 & 85.99 & 94.83 & 72.26 & 45.54
+& 68.16 \\
+
+\midrule
+\multicolumn{8}{c}{\textit{Student: Qwen3-0.6B-Non-Thinking}} \\
+\midrule
+
+Student
+& 2.08 & 1.35 & 18.98 & 45.52 & 16.94 & 13.69
+& 16.43 \\
+
+SFT$_{@139}$
+& 4.62$_{\pm 0.49}$ & 6.84$_{\pm 0.12}$ & 30.08$_{\pm 0.20}$ & 58.60$_{\pm 0.37}$ & 27.24$_{\pm 0.20}$ & 15.59$_{\pm 0.25}$
+& 23.83$_{\pm 0.06}$ \\
+
+KD$_{@139}$
+& 4.51$_{\pm 0.63}$ & 6.15$_{\pm 0.73}$ & 28.75$_{\pm 0.80}$ & 57.88$_{\pm 0.69}$ & 26.62$_{\pm 0.52}$ & 15.09$_{\pm 0.88}$
+& 23.17$_{\pm 0.49}$ \\
+
+GRPO$_{@80}$
+& 3.82$_{\pm 0.71}$ & 3.78$_{\pm 1.27}$ & 26.46$_{\pm 0.92}$ & 53.72$_{\pm 1.60}$ & 23.45$_{\pm 1.14}$ & 15.12$_{\pm 0.71}$
+& 21.06$_{\pm 1.00}$ \\
+
+OPD$_{@40}$
+& 11.25 & 15.62 & 44.95 & 73.30 & 41.52 & 23.44
+& 35.01 \\
+
+TRD$_{@139}$
+& 3.44 & 5.31 & 28.43 & 55.70 & 26.41 & 15.12
+& 22.40 \\
+
+FastOPD$_{@40}$
+& \textbf{14.58} & \textbf{17.71} & \underline{47.21} & \underline{74.88} & \underline{44.13} & \underline{23.48}
+& \underline{37.00} \\
+
+SKD$_{@40}$
+& 8.44 & 9.79 & 35.69 & 65.38 & 33.24 & 18.98
+& 28.59 \\
+
+RelayOPD$_{@60}$
+& \underline{14.27} & \underline{17.60} & \textbf{49.36} & \textbf{76.35} & \textbf{45.76} & \textbf{25.37}
+& \textbf{38.12} \\
+
+\rowcolor{blue!8}
+\textbf{\ours{}}
+& XX & XX & XX & XX & XX & XX
+& XX \\
+
+\rowcolor{blue!8}
+\textcolor{green!50!black}{$\Delta$ vs OPD}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+& \textcolor{green!50!black}{XX}
+\\
+
+\midrule
+\multicolumn{8}{c}{\textit{Student: Qwen3-1.7B-Non-Thinking}} \\
+\midrule
+
+Student
+& 11.98 & 9.17 & 41.00 & 73.22 & 39.80 & 29.23
+& 34.07 \\
+
+SFT$_{@40}$
+& 26.56 & 22.19 & 58.43 & 83.15 & 52.41 & 34.56
+& 46.22 \\
+
+KD$_{@139}$
+& 20.59$_{\pm 0.43}$ & 17.85$_{\pm 2.29}$ & 52.18$_{\pm 0.63}$ & 79.22$_{\pm 0.22}$ & 48.50$_{\pm 0.46}$ & 33.79$_{\pm 0.92}$
+& 42.02$_{\pm 0.49}$ \\
+
+GRPO$_{@120}$
+& 27.92 & 20.83 & 56.66 & 82.47 & 52.67 & 33.41
+& 45.66 \\
+
+OPD$_{@80}$
+& 35.10$_{\pm 0.42}$ & 22.78$_{\pm 0.42}$ & 62.94$_{\pm 0.40}$ & 86.26$_{\pm 0.42}$ & 56.65$_{\pm 0.36}$ & 36.78$_{\pm 0.53}$
+& 50.08$_{\pm 0.09}$ \\
+
+TRD$_{@40}$
+& 21.15$_{\pm 0.54}$ & 18.72$_{\pm 0.57}$ & 50.95$_{\pm 0.85}$ & 79.31$_{\pm 0.45}$ & 46.38$_{\pm 0.49}$ & 32.05$_{\pm 0.10}$
+& 41.42$_{\pm 0.15}$ \\
+
+FastOPD$_{@60}$
+& \underline{40.97}$_{\pm 1.84}$ & 26.25$_{\pm 0.58}$ & 66.08$_{\pm 0.24}$ & 87.28$_{\pm 0.36}$ & 58.01$_{\pm 0.27}$ & 36.73$_{\pm 0.99}$
+& 52.55$_{\pm 0.36}$ \\
+
+SKD$_{@120}$
+& 25.52 & 20.62 & 56.85 & 82.42 & 51.54 & 36.53
+& 45.58 \\
+
+RelayOPD$_{@40}$
+& 38.96 & \textbf{29.27} & \underline{67.02} & \underline{87.92} & \underline{58.81} & \underline{37.45}
+& \underline{53.24} \\
+
+\rowcolor{blue!8}
+\textbf{\ours{}}$_{@40}$
+& \textbf{41.56} & \underline{27.60} & \textbf{67.43} & \textbf{88.75} & \textbf{59.04} & \textbf{37.91}
+& \textbf{53.72} \\
+
+\rowcolor{blue!8}
+\textcolor{green!50!black}{$\Delta$ vs OPD}
+& \textcolor{green!50!black}{+6.46}
+& \textcolor{green!50!black}{+4.82}
+& \textcolor{green!50!black}{+4.49}
+& \textcolor{green!50!black}{+2.49}
+& \textcolor{green!50!black}{+2.39}
+& \textcolor{green!50!black}{+1.13}
+& \textcolor{green!50!black}{+3.64}
+\\
+
+\bottomrule
