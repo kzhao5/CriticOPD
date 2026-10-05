@@ -27,7 +27,7 @@ for SPEC in olympiad:8:32768:34817:4 amc23:32:32768:34817:4 aime24:32:32768:3481
     # eng 只能用 gstandby(会被抢占后重新排队,评测分片从头重跑即可)。
     # 申请时长按实际需要给(单片 1-2.5 小时),短才容易被插进空档;L40S(m13l)解码慢 3-4 倍,单独给 10 小时。
     # eng 只接受 eng 或 standby QOS,我们用 gstandby 提交会被直接拒绝,不用。
-    for EP in "--partition=cs,cs2,cs3 --qos=cs --exclude=cs-1-2,cs-1-3 --time=6:00:00" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-2 --time=6:00:00" \
+    for EP in "--partition=cs,cs2,cs3 --qos=cs --exclude=cs-1-2,cs-1-3 --time=6:00:00" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-3,dw-1-4 --time=6:00:00" \
               "--partition=m13h --qos=gpu --exclude=m13h-1-1 --time=6:00:00" "--partition=m13l --qos=gpu --time=10:00:00"; do
       J=$(sbatch --parsable $DEP ${SB_EXTRA:-} $EP --cpus-per-task=4 --mem=64G \
         --gres=gpu:1 --job-name=$NAME \
