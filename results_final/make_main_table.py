@@ -44,12 +44,12 @@ def load(run, step):
 
 
 def pick_critic_step(base, scale):
-    """0.6B 的 CriticOPD 没有先验峰值:三个 seed 在 40 与 60 都评完后,取前四项均值(主表选点规则)按 seed 平均更高的那一步。"""
+    """0.6B 的 CriticOPD 没有先验峰值:三个 seed 在 40、60、80 都评完后,取前四项均值(主表选点规则)按 seed 平均最高的那一步。"""
     cand = {}
-    for st in (40, 60):
+    for st in (40, 60, 80):
         rs = [load(f"{base}_seed{s}", st) for s in (42, 43, 44)]
         if all(r is not None for r in rs): cand[st] = np.mean([np.mean(r[:4]) for r in rs])
-    return max(cand, key=cand.get) if len(cand) == 2 else None
+    return max(cand, key=cand.get) if len(cand) == 3 else None
 
 
 R, RAW = {}, {}
@@ -140,3 +140,41 @@ for k, r in R.items():
     md.append(f"| {sc} | {n} | {r['step']} | {','.join(map(str, sorted(r['seeds'])))} | " + " | ".join(vals) + " |")
 open(f"{OUT}/main_table_multiseed.md", "w").write("\n".join(md) + "\n")
 print("\n".join(md))
+
+
+# ---------------- 主表下面那段正文(1.7B),全部数字由表中显示的值算出
+def paragraph():
+    names = [n for n, *_ in SPEC["1.7B"]]
+    shown = {n: cells("1.7B", n)[0] for n in names}
+    c, o = shown["CriticOPD"], shown["OPD"]
+    if c is None or o is None: return None
+    r2 = lambda x: float(f"{x:.2f}")                    # 正文与表格一致:先按显示的两位小数取值再相减
+    d = [r2(c[j]) - r2(o[j]) for j in range(7)]
+    full = ["AIME 2024", "AIME 2025", "AMC 2023", "MATH500", "OlympiadBench", "Minerva Math"]
+    best = [j for j in range(6) if all(r2(c[j]) >= r2(shown[n][j]) for n in names if shown[n] is not None)]
+    num = {6: "all six", 5: "five of the six", 4: "four of the six", 3: "three of the six", 2: "two of the six", 1: "one of the six"}
+    def vs(n):
+        g = r2(c[6]) - r2(shown[n][6])
+        return f"${abs(g):.2f}$ points {'above' if g >= 0 else 'below'} that of {n}"
+    rb = [full[j] for j in range(6) if r2(shown["RelayOPD"][j]) > r2(c[j])]
+    rb_txt = (", which is better only on " + rb[0]) if len(rb) == 1 else ((", which is better on " + " and ".join(rb)) if rb else "")
+    sgn = lambda x: f"$+{x:.2f}$" if x >= 0 else f"$-{-x:.2f}$"
+    best_avg = all(r2(c[6]) >= r2(shown[n][6]) for n in names if shown[n] is not None)
+    lines = ["Table~\\ref{tab:main} reports the main results.",
+             f"For the Qwen3-1.7B student, \\ours{{}} raises the average of OPD from ${r2(o[6]):.2f}$ to",
+             f"${r2(c[6]):.2f}$.",
+             f"The gains are largest on the competition benchmarks, with {sgn(d[0])} on AIME 2024,",
+             f"{sgn(d[1])} on AIME 2025, and {sgn(d[2])} on AMC 2023, while MATH500 improves by ${d[3]:.2f}$",
+             f"and Minerva Math by ${d[5]:.2f}$."]
+    if best:
+        lines.append(f"Among the students, \\ours{{}} obtains {'the best average and ' if best_avg else ''}the best accuracy on")
+        lines.append(f"{num[len(best)]} benchmarks.")
+    lines.append(f"Its average is {vs('FastOPD')} and {vs('RelayOPD')}{rb_txt}.")
+    lines += ["Both baselines change how rollouts are generated, whereas \\ours{} changes how",
+              "incorrect rollouts are supervised."]
+    assert min(d[:3]) > max(d[3:6]), "竞赛题增益最大的说法不再成立,需改写正文"
+    return "\n".join(lines)
+
+
+P_ = paragraph()
+if P_: open(f"{OUT}/main_table_paragraph.tex", "w").write(P_ + "\n"); print(P_)

@@ -1,0 +1,11 @@
+Table~\ref{tab:main} reports the main results.
+For the Qwen3-1.7B student, \ours{} raises the average of OPD from $50.08$ to
+$53.72$.
+The gains are largest on the competition benchmarks, with $+6.46$ on AIME 2024,
+$+4.82$ on AIME 2025, and $+4.49$ on AMC 2023, while MATH500 improves by $2.49$
+and Minerva Math by $1.13$.
+Among the students, \ours{} obtains the best average and the best accuracy on
+four of the six benchmarks.
+Its average is $1.17$ points above that of FastOPD and $0.04$ points above that of RelayOPD, which is better on AIME 2025 and OlympiadBench.
+Both baselines change how rollouts are generated, whereas \ours{} changes how
+incorrect rollouts are supervised.

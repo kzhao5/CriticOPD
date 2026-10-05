@@ -14,12 +14,12 @@ TPQ=$PWD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet
 DPQ=$PWD/outputs/offline_data/trd_pt17b/trd_trajectories.parquet
 DAPO=/home/kzhao2/OPD/datasets/dapo-math-17k.parquet
 REG=multiseed/jobs.tsv
-PARTS=("--partition=cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-2")   # cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
+PARTS=("--partition=cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 2026-10-04 16:00 dw-1-3、dw-1-4 空着的卡会在启动前杀作业;dw-1-2 已恢复。cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
 COMMON="--parsable --gres=gpu:4 --cpus-per-task=32 --mem=350G --time=${SEG_TIME:-23:30:00}"   # 运行中计费额度按「计费 x 申请时长」算,短任务用 SEG_TIME 缩短
 STUDENT=/home/kzhao2/OPD/model/Qwen3-1.7B; TP=""          # TP:0.6B 的任务名前缀,避免与 1.7B 重名
 if [ "$SIZE" = 0.6B ]; then
   STUDENT=/home/kzhao2/OPD/model/Qwen3-0.6B; TP=6
-  PARTS=("--partition=cs2,cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-2")   # 0.6B 不报算力,哪里空就在哪里跑
+  PARTS=("--partition=cs2,cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 0.6B 不报算力,哪里空就在哪里跑
   DPQ=$PWD/outputs/offline_data/trd_pt06b/trd_trajectories.parquet      # 0.6B 学生自己的改写数据
 fi
 
@@ -34,6 +34,7 @@ SPEC17=(
   "relay    opd/scripts/relay_opd/train.sh          40 $DAPO relay_1p7b        2 arg"
   "sft      opd/scripts/baselines/sft.sh            40 $TPQ  sft_pt17b         2 env"
   "critic   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_final_pt17b 2 arg"
+  "criticp  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_prefix_pt17b 2 arg"
 )
 # CriticOPD 最终版:列出全部错误、在最后一个错误处断开(R4GTKL),批改输出上限 2048,
 # 截断时丢掉最后那条没写完的错误。其余开关与 criticopd/submit_arm.sh 的 R4GTKL 逐项一致。
@@ -51,9 +52,9 @@ SPEC06=(
   "opd      opd/scripts/baselines/opd.sh            40 $DAPO opd_pt06b         2 arg"
   "fastopd  opd/scripts/baselines/fastopd/8192.sh   40 $DAPO fastopd8192_pt06b 2 arg"
   "skd      opd/scripts/baselines/skd.sh            40 $DAPO skd_pt06b         2 env"
-  "critic   opd/scripts/baselines/opd.sh            60 $DAPO criticopd_final_pt06b 2 arg"
+  "critic   opd/scripts/baselines/opd.sh            80 $DAPO criticopd_final_pt06b 2 arg"
 )
-#  0.6B 的 CriticOPD 没有先验峰值:训到 60,在 40 和 60 都评测(第 40 步由附加守护评测,见 eval_guard.sh 的 GUARD_NO_RESUBMIT)
+#  0.6B 的 CriticOPD 没有先验峰值:训到 80(2026-10-05 起,原为 60),在 40、60、80 都评测(第 40 步由附加守护评测,见 eval_guard.sh 的 GUARD_NO_RESUBMIT)
 if [ "$SIZE" = 0.6B ]; then SPEC=("${SPEC06[@]}"); else SPEC=("${SPEC17[@]}"); fi
 sb() { if [ "$DRY" = 1 ]; then echo "DRY sbatch $*" >&2; echo "9999$RANDOM"; else sbatch "$@"; fi; }
 
@@ -63,7 +64,7 @@ for spec in "${SPEC[@]}"; do
   [ -n "$ONLY" ] && ! grep -qw "$m" <<< "$ONLY" && continue
   for seed in $SEEDS; do
     run=${base}_seed$seed; tag=$TP$m$seed; out=$PWD/outputs/checkpoints/$run
-    extra="trainer.resume_mode=auto trainer.max_actor_ckpt_to_keep=2"
+    extra="trainer.resume_mode=auto trainer.max_actor_ckpt_to_keep=${KEEP_CKPT:-2}"   # 续训时调大,免得删掉还在评测的旧 checkpoint
     stepv=""
     if [ "$how" = arg ]; then extra="$extra trainer.total_training_steps=$S"; else stepv=",TOTAL_TRAINING_STEPS=$S"; fi
     [ "$m" = sft ] && extra=""                       # SFT 训练器不接受额外参数
@@ -73,8 +74,10 @@ for spec in "${SPEC[@]}"; do
     [ "$m" = sft ] && envs="$envs,NUM_GPUS=4"
     [ "$m" = grpo ] && envs="$envs,N_GPUS=4"          # grpo.sh 读 N_GPUS(默认 8)
     [ "$m" = critic ] && { envs="$envs$CRIT_ENV"; extra="$extra $CRIT_ARGS"; }
+    # 消融:最终版 + 第一个错误之前的前缀也按普通 OPD 算损失(只跑 1.7B seed 42,与 critic seed 42 成对比较)
+    [ "$m" = criticp ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_PREFIX_LOSS=1"; extra="$extra $CRIT_ARGS"; }
     prev=""
-    for seg in $(seq 1 $nseg); do
+    for seg in $(seq $((1 + ${SEG_BASE:-0})) $((nseg + ${SEG_BASE:-0}))); do   # SEG_BASE:续训用新段号,避开旧链留下的 .segN.lock
       dep=""; [ -n "$prev" ] && dep="--dependency=afterany:$prev"
       [ -z "$prev" ] && [ -n "$FIRST_DEP" ] && dep="--dependency=$FIRST_DEP"
       ids=""
