@@ -9,7 +9,7 @@ R=/home/kzhao2/Relay-OPD; ST=$R/multiseed/status.tsv
 CK=$R/outputs/checkpoints/$RUN/global_step_$STEP
 log() { printf "%s\t%s\t%s\t%s\t%s\n" "$(date '+%F %T')" "$RUN" "$STEP" "$1" "$2" >> $ST; echo "[guard] $1 $2"; }
 again() {  # again <sbatch 额外参数...>:用新的 TRY/POLL 再交一次自己
-  sbatch --parsable -p cs --qos=cs -c 2 --mem=8G --time=0:30:00 --job-name=g_$TAG \
+  sbatch --parsable -p cs --qos=cs -c 2 --mem=8G --time=0:30:00 --exclude=cs-1-1,cs-1-3,cs-1-4 --job-name=g_$TAG \
     --output=$R/logs/%x_%j.log "$@" --wrap="bash $R/multiseed/eval_guard.sh $RUN $STEP $TAG $NT $NP"
 }
 
