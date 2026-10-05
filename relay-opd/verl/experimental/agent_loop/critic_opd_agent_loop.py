@@ -216,6 +216,11 @@ CRITIC_SYS_MULTI_CAPPED = (
     "You are given the correct answer. Use it as a reference to trace the student's work forward and find "
     "the steps that sent the reasoning off track. If the work is still on a valid path and was merely "
     "slow, reply SEGMENT: NONE.\n\n" + _MULTI_RULES)
+# 消融 CRITIC_OPD_ALL 用:答对的 rollout 不能说「答案是错的」,第一段改成中性描述,其余规则不变
+CRITIC_SYS_MULTI_ANY = (
+    "You are a meticulous math teacher. A student has submitted a complete solution. You are given the correct "
+    "answer. Use it as a reference to trace the student's work forward and find the steps that contain genuine "
+    "errors.\n\n" + _MULTI_RULES)
 _RE_ERRHDR = re.compile(r"\bERROR\s*\d+\s*:?\s*$", re.I)
 
 
@@ -420,6 +425,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
     ref_file = None
     critic_maxlen = 34817
     kerr = None
+    prefix_loss = False
+    critic_all = False
     _REFS = None            # {sha1(题目文本): 参考解答},每个进程加载一次
     anneal = None
     global_step = -1
@@ -442,6 +449,10 @@ class CriticOpdAgentLoop(AgentLoopBase):
         self.critic_maxlen = int(os.environ.get("CRITIC_OPD_CRITIC_MAXLEN", "34817"))   # teacher 的 max_model_len
         # k 消融:'1'/'2'/'3'/'last';不设则与原来完全一样。只在「保留出错段」下有意义。
         self.kerr = (os.environ.get("CRITIC_OPD_KERR", "").strip().lower() or None)
+        # 前缀算损失:第一个错误所在段之前的学生 token 也按普通 OPD 训练(teacher 不看反馈);不设则与原来一样全部 mask
+        self.prefix_loss = os.environ.get("CRITIC_OPD_PREFIX_LOSS", "0") == "1"
+        # 消融:去掉判分这道门,答对的 rollout 也交给 critic(用中性提示词,没有真正的错误就回 NONE、按普通 OPD 训练)
+        self.critic_all = os.environ.get("CRITIC_OPD_ALL", "0") == "1"
         # 退火(DAgger 式 beta 调度):"开始衰减步,衰减结束步,beta 下限"。答错的样本以概率 beta
         # 走 critic 修复,否则保留它自己的 rollout 按 plain OPD 训练。不设则恒为 1(即 R4GT)。
         _a = os.environ.get("CRITIC_OPD_ANNEAL", "").strip()
@@ -624,10 +635,15 @@ class CriticOpdAgentLoop(AgentLoopBase):
         capped = len(out.token_ids) >= rlen
         text = self.tokenizer.decode(resp, skip_special_tokens=True)
         ready = self.enabled and self.teacher_manager is not None and gt is not None
+        is_correct = False
         if capped:
             need = ready and self.give_gt
         else:
-            need = ready and not await self._grade_async(text, gt)
+            is_correct = bool(ready) and await self._grade_async(text, gt)
+            need = ready and (not is_correct or self.critic_all)
+            if is_correct and need:
+                stats["critic_on_correct"] = 1
+                self._tally(correct_critiqued=1)
 
         if capped:
             self._tally(capped=1)
@@ -665,7 +681,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
             if self.ref_file:
                 self._tally(**({"ref_used": 1} if cids is not None else {"ref_missing": 1}))
             if cids is None and self.kerr:
-                cmsg = [{"role": "system", "content": CRITIC_SYS_MULTI_CAPPED if capped else CRITIC_SYS_MULTI},
+                cmsg = [{"role": "system", "content": CRITIC_SYS_MULTI_CAPPED if capped else (CRITIC_SYS_MULTI_ANY if is_correct else CRITIC_SYS_MULTI)},
                         {"role": "user", "content":
                          f"Problem:\n{messages[-1]['content']}\n\n"
                          f"Correct answer (reference only -- never reveal it): {gt}\n\n"
@@ -696,17 +712,20 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 if self.kerr:
                     errs = parse_critic_multi(ctext, segs)
                     n_raw = len(errs)
+                    _first_raw = errs[0][0] if errs else None   # 前缀损失的边界:批改找到的第一个错误(含被泄露过滤去掉的)
                     errs = drop_leaky(errs, gt, text)
                     if n_raw > len(errs):
                         stats["critic_n_leak"] = n_raw - len(errs)
                         self._tally(kerr_leak_drop=n_raw - len(errs))
                     sel = kerr_select(errs, self.kerr)
                     idx, fb = (sel[-1][0], kerr_feedback(sel)) if sel else (None, None)
+                    first_idx = _first_raw if sel else None
                     stats["critic_n_err"] = len(errs); stats["critic_k_eff"] = len(sel)
                     if sel:
                         self._tally(**{f"kerr_k{len(sel)}": 1})
                 else:
                     idx, fb = parse_critic(ctext, segs)
+                    first_idx = idx
                 if idx is not None and fb:
                     stats["critic_parsed"] = 1
                     self._tally(parsed=1)
@@ -738,7 +757,11 @@ class CriticOpdAgentLoop(AgentLoopBase):
                         stats["repair_tokens"] = _kc
                     # 训练序列 = 保留前缀(mask 0) + 学生重写(mask 1)。反馈不进序列。
                     _resp_r = (kept_ids + _rep_ids)[:rlen]
-                    _mask_r = ([0] * len(kept_ids) + [1] * len(_rep_ids))[:rlen]
+                    _npre = 0
+                    if self.prefix_loss and first_idx:
+                        _npre = min(_tok_prefix_for_text(self.tokenizer, resp, "\n\n".join(segs[:first_idx])), len(kept_ids))
+                        stats["prefix_loss_tokens"] = _npre
+                    _mask_r = ([1] * _npre + [0] * (len(kept_ids) - _npre) + [1] * len(_rep_ids))[:rlen]
                     # 只保留修对的重写:没修对(含顶上限、没写出答案)就不返回修复结果,
                     # 落到函数末尾,按原始 rollout 的 plain OPD 训练(num_turns=2)。
                     _accept = True

@@ -35,6 +35,8 @@ SPEC17=(
   "sft      opd/scripts/baselines/sft.sh            40 $TPQ  sft_pt17b         2 env"
   "critic   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_final_pt17b 2 arg"
   "criticp  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_prefix_pt17b 2 arg"
+  "critall  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_all_pt17b 2 arg"
+  "critclean opd/scripts/baselines/opd.sh           40 $DAPO criticopd_clean_pt17b 2 arg"
 )
 # CriticOPD 最终版:列出全部错误、在最后一个错误处断开(R4GTKL),批改输出上限 2048,
 # 截断时丢掉最后那条没写完的错误。其余开关与 criticopd/submit_arm.sh 的 R4GTKL 逐项一致。
@@ -76,6 +78,10 @@ for spec in "${SPEC[@]}"; do
     [ "$m" = critic ] && { envs="$envs$CRIT_ENV"; extra="$extra $CRIT_ARGS"; }
     # 消融:最终版 + 第一个错误之前的前缀也按普通 OPD 算损失(只跑 1.7B seed 42,与 critic seed 42 成对比较)
     [ "$m" = criticp ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_PREFIX_LOSS=1"; extra="$extra $CRIT_ARGS"; }
+    # 消融:去掉判分这道门,答对的也交给 critic(中性提示词)
+    [ "$m" = critall ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_ALL=1"; extra="$extra $CRIT_ARGS"; }
+    # 消融:去掉 L_fb,重写段由不看反馈的 teacher 在训练序列上打分
+    [ "$m" = critclean ] && { envs="$envs${CRIT_ENV/CRITIC_OPD_LOSS=fb/CRITIC_OPD_LOSS=clean}"; extra="$extra $CRIT_ARGS"; }
     prev=""
     for seg in $(seq $((1 + ${SEG_BASE:-0})) $((nseg + ${SEG_BASE:-0}))); do   # SEG_BASE:续训用新段号,避开旧链留下的 .segN.lock
       dep=""; [ -n "$prev" ] && dep="--dependency=afterany:$prev"

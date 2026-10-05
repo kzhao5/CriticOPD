@@ -8,6 +8,8 @@ awk -F'\t' '$4 ~ /^train_seg/ {last[$2]=$3} END {for (r in last) print r, last[r
   base=${run%_seed*}; seed=${run##*_seed}; m=${base%%_*}
   case $m in fastopd8192) m=fastopd;; criticopd) m=critic;; esac
   [[ $base == criticopd_prefix_* ]] && m=criticp
+  [[ $base == criticopd_all_* ]] && m=critall
+  [[ $base == criticopd_clean_* ]] && m=critclean
   [[ $base == *pt06b ]] && m=6$m
   tag=ms_${m}${seed}
   squeue -h -u kzhao2 -t R -o %j | grep -q "^${tag}_s" && continue          # 还有段在跑(比如正在存最后的 checkpoint)

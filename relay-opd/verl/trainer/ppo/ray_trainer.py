@@ -2112,7 +2112,7 @@ class RayPPOTrainer:
                         # losses.py 见到它就做优势中心化,给 fb arm 写上它等于偷偷叠加 L_center,
                         # R4 系列就不再是 R4。
                         _closs = os.environ.get("CRITIC_OPD_LOSS", "clean")
-                        if _closs in ("center", "fb"):
+                        if _closs in ("center", "fb", "clean"):   # clean 只记指标(critic_repair_mask 仍只给 center)
                             # 自报告:静默失效(拿不到 __num_turns__ -> 退化成 L_clean 却标着 center)
                             # 是最坏的失败模式,所以这里无论成败都往 metrics 里写一个数。
                             if "__num_turns__" not in batch.non_tensor_batch:
