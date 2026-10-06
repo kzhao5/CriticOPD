@@ -1,0 +1,44 @@
+criticopd_R1_pt17b                         80 avg6=50.06 medAIME=8505
+criticopd_R2v2_pt17b                       40 avg6=49.04 medAIME=8428
+criticopd_R2v2_pt17b                       60 avg6=49.83 medAIME=8285
+criticopd_R2v2_pt17b                       80 avg6=49.81 medAIME=8201
+criticopd_R3v2_pt17b                       40 avg6=50.83 medAIME=10264
+criticopd_R3v2_pt17b                       60 avg6=50.88 medAIME=9651
+criticopd_R3v2_pt17b                       80 avg6=50.98 medAIME=9164
+criticopd_R4GTA_pt17b                      40 avg6=51.74 medAIME=11293
+criticopd_R4GTA_pt17b                      60 avg6=49.94 medAIME=8830
+criticopd_R4GTB_pt17b                      40 avg6=51.90 medAIME=11658
+criticopd_R4GTK2_pt17b                     40 avg6=52.85 medAIME=11945
+criticopd_R4GTKL_pt17b                     40 avg6=52.99 medAIME=12514
+criticopd_R4GTR2_pt17b                     40 avg6=52.56 medAIME=11906
+criticopd_R4GTR_pt17b                      40 avg6=52.75 medAIME=12002
+criticopd_R4GTV_pt17b                      40 avg6=49.98 medAIME=8928
+criticopd_R4GTV_pt17b                      60 avg6=50.04 medAIME=8588
+criticopd_R4GT_pt17b                       40 avg6=52.35 medAIME=11598
+criticopd_R4GT_pt17b                       60 avg6=51.20 medAIME=9858
+criticopd_R4GT_pt17b                       80 avg6=50.95 medAIME=9012
+criticopd_R4TR_pt17b                       40 avg6=50.08 medAIME=9643
+criticopd_R4TR_pt17b                       60 avg6=48.55 medAIME=8340
+criticopd_R4TR_pt17b                       80 avg6=49.90 medAIME=8474
+criticopd_R4_pt17b                         40 avg6=51.52 medAIME=10310
+criticopd_R4_pt17b                         60 avg6=50.20 medAIME=9508
+criticopd_R4_pt17b                         80 avg6=50.08 medAIME=8962
+criticopd_all_pt17b_seed42                 40 avg6=53.73 medAIME=13040
+criticopd_final_pt17b_seed42               40 avg6=53.72 medAIME=12034
+criticopd_final_pt17b_seed43               40 avg6=53.64 medAIME=12745
+criticopd_final_pt17b_seed44               40 avg6=53.30 medAIME=12592
+criticopd_prefix_pt17b_seed42              40 avg6=51.81 medAIME=11218
+fastopd8192_1p7b_seed43                    60 avg6=52.28 medAIME=11812
+fastopd8192_1p7b_seed44                    60 avg6=52.96 medAIME=11864
+fastopd8192_1p7b                           60 avg6=52.42 medAIME=12052
+opd_1p7b_seed43                            80 avg6=49.99 medAIME=8396
+opd_1p7b_seed44                            80 avg6=50.09 medAIME=8405
+opd_1p7b                                   80 avg6=50.18 medAIME=8660
+relay_1p7b_seed43                          40 avg6=53.82 medAIME=15402
+relay_1p7b_seed44                          40 avg6=53.97 medAIME=14448
+relay_1p7b                                 40 avg6=53.24 medAIME=14742
+relay_1p7b                                 60 avg6=53.18 medAIME=11051
+n 40 pearson 0.931 spearman 0.952
+slope per 1000 tokens 0.719
+criticopd_final_pt17b_seed4 [('seed42', 40, 12034), ('seed43', 40, 12745), ('seed44', 40, 12592)] mean median len 12457
+opd_1p7b [('seed43', 80, 8396), ('seed44', 80, 8405), ('d_1p7b', 80, 8660)] mean median len 8487

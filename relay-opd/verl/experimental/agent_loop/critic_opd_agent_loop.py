@@ -216,6 +216,8 @@ CRITIC_SYS_MULTI_CAPPED = (
     "You are given the correct answer. Use it as a reference to trace the student's work forward and find "
     "the steps that sent the reasoning off track. If the work is still on a valid path and was merely "
     "slow, reply SEGMENT: NONE.\n\n" + _MULTI_RULES)
+# 消融 CRITIC_OPD_FB_MODE=generic:与方法同一模板,只放一条不含内容的反馈
+GENERIC_FEEDBACK = "Your solution contains errors. Check the previous reasoning and redo it."
 # 消融 CRITIC_OPD_ALL 用:答对的 rollout 不能说「答案是错的」,第一段改成中性描述,其余规则不变
 CRITIC_SYS_MULTI_ANY = (
     "You are a meticulous math teacher. A student has submitted a complete solution. You are given the correct "
@@ -427,6 +429,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
     kerr = None
     prefix_loss = False
     critic_all = False
+    cut_mode = "error"
+    fb_mode = "critique"
     _REFS = None            # {sha1(题目文本): 参考解答},每个进程加载一次
     anneal = None
     global_step = -1
@@ -453,6 +457,10 @@ class CriticOpdAgentLoop(AgentLoopBase):
         self.prefix_loss = os.environ.get("CRITIC_OPD_PREFIX_LOSS", "0") == "1"
         # 消融:去掉判分这道门,答对的 rollout 也交给 critic(用中性提示词,没有真正的错误就回 NONE、按普通 OPD 训练)
         self.critic_all = os.environ.get("CRITIC_OPD_ALL", "0") == "1"
+        # 机制消融:CUT=end 保留整份错误解答(不按错误位置切;写满上限的仍按错误切,否则没有续写空间);
+        # FB_MODE=generic 断点不变,反馈换成不含内容的通用提示(teacher 打分时看到的也是这句)
+        self.cut_mode = os.environ.get("CRITIC_OPD_CUT", "error").strip().lower()
+        self.fb_mode = os.environ.get("CRITIC_OPD_FB_MODE", "critique").strip().lower()
         # 退火(DAgger 式 beta 调度):"开始衰减步,衰减结束步,beta 下限"。答错的样本以概率 beta
         # 走 critic 修复,否则保留它自己的 rollout 按 plain OPD 训练。不设则恒为 1(即 R4GT)。
         _a = os.environ.get("CRITIC_OPD_ANNEAL", "").strip()
@@ -731,6 +739,11 @@ class CriticOpdAgentLoop(AgentLoopBase):
                     self._tally(parsed=1)
                     # k 消融强制保留出错段:不保留时,前 k-1 个错误留在上下文里、第 k 个却被删掉,批语说不清
                     keep = segs[:idx] if (self.splice == "before" and not self.kerr) else segs[:idx + 1]
+                    if self.cut_mode == "end" and not capped:
+                        keep = segs
+                        stats["cut_at_end"] = 1
+                    if self.fb_mode == "generic":
+                        fb = GENERIC_FEEDBACK
                     kept_txt = "\n\n".join(keep)
                     _k = _tok_prefix_for_text(self.tokenizer, resp, kept_txt)
                     kept_ids = resp[:_k]
