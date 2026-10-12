@@ -78,7 +78,7 @@ echo "[OPD] response=${max_response_length} rollout_tp=${rollout_tensor_model_pa
 echo "[OPD] resources=actor:${actor_gpus_per_node}+teacher:${teacher_gpus_per_node} GPUs"
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=grpo \
+    algorithm.adv_estimator=${ADV_ESTIMATOR:-grpo} \
     algorithm.use_kl_in_reward=False \
     data.train_files="['${TRAIN_DATA}']" \
     "data.val_files=['${BENCH}/aime-24_verl.parquet','${BENCH}/aime-2025_verl.parquet']" \
@@ -150,7 +150,7 @@ python3 -m verl.trainer.main_ppo \
     ++distillation.teacher_models.teacher_model.inference.engine_kwargs.vllm.moe_backend=${teacher_moe_backend} \
     distillation.distillation_loss.loss_mode=k1 \
     distillation.distillation_loss.use_policy_gradient=True \
-    distillation.distillation_loss.use_task_rewards=False \
+    distillation.distillation_loss.use_task_rewards=${USE_TASK_REWARDS:-False} \
     "$@"
 
 echo "=== OPD training complete: ${EXP_ID} ==="

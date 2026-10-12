@@ -1868,6 +1868,11 @@ class RayPPOTrainer:
                     gen_batch.meta_info["global_steps"] = self.global_steps
                     rollout_n = self.config.actor_rollout_ref.rollout.n
                     gen_batch_output = gen_batch.repeat(repeat_times=rollout_n, interleave=True)
+                    if os.environ.get("CRITIC_OPD_CGRPO", "0") == "1":
+                        # Critique-GRPO:组内槽位号。前 n_init 个是初始回答,最后一个是精炼槽位(见 critic_opd_agent_loop)
+                        _n_init = int(os.environ.get("CRITIC_OPD_CGRPO_N_INIT", "7"))
+                        assert rollout_n == _n_init + 1, f"Critique-GRPO 需要 rollout.n = n_init + 1,现在 {rollout_n} vs {_n_init}"
+                        gen_batch_output.non_tensor_batch["cgrpo_slot"] = np.tile(np.arange(rollout_n), len(gen_batch))
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         # NOTE: REMAX needs one sampled rollout plus one greedy baseline per prompt.
@@ -2145,6 +2150,48 @@ class RayPPOTrainer:
                         # Still in critic warmup, only update weights to wake up rollout replicas.
                         self.checkpoint_manager.update_weights(self.global_steps)
                     else:
+                        if os.environ.get("CRITIC_OPD_CGRPO", "0") == "1":
+                            # Critique-GRPO:精炼回答的 token 交给损失用 shaping 比率;空的精炼槽位 mask 本来就全 0
+                            _role = batch.non_tensor_batch.get("cgrpo_role")
+                            _rm4 = batch.batch["response_mask"]
+                            if _role is None or _rm4.is_nested:
+                                raise RuntimeError("Critique-GRPO: 缺 cgrpo_role,或 response_mask 是 nested,精炼 mask 建不起来")
+                            _role = np.array([int(r) if r is not None else 0 for r in _role])
+                            _isref = torch.as_tensor(_role == 1, device=_rm4.device).unsqueeze(-1)
+                            batch.batch["critique_refine_mask"] = (_isref & _rm4.bool()).to(_rm4.dtype)
+                            _sk = "token_level_scores" if "token_level_scores" in batch.batch.keys() else "token_level_rewards"
+                            _sc = batch.batch[_sk].sum(-1).float().cpu().numpy()
+                            _ngroups = max(int((_role == 1).sum() + (_role == 2).sum()), 1)
+                            metrics["cgrpo/refine_frac_of_groups"] = float((_role == 1).sum()) / _ngroups
+                            metrics["cgrpo/refine_reward_mean"] = float(_sc[_role == 1].mean()) if (_role == 1).any() else 0.0
+                            metrics["cgrpo/init_reward_mean"] = float(_sc[_role == 0].mean()) if (_role == 0).any() else 0.0
+                            metrics["cgrpo/refine_tok_frac"] = float(
+                                batch.batch["critique_refine_mask"].sum().item() / max(int(_rm4.sum().item()), 1))
+                        if os.environ.get("CRITIC_OPD_DUMP_BATCH"):
+                            try:
+                                # 分析用(图 2):每条训练序列的回答 token、参与损失的位置、老师写的位置(RelayOPD)
+                                _rm5 = batch.batch["response_mask"]
+                                _res = batch.batch["responses"]
+                                _tm = batch.batch.get("relay_teacher_mask", None) if hasattr(batch.batch, "get") else None
+                                if _tm is None and "relay_teacher_mask" in batch.batch.keys():
+                                    _tm = batch.batch["relay_teacher_mask"]
+                                _att = batch.batch["attention_mask"]
+                                _plen = batch.batch["prompts"].shape[-1]
+                                _rows = []
+                                for _i in range(_res.shape[0]):
+                                    _L = int(_att[_i, _plen:].sum().item())
+                                    _p = batch.batch["prompts"][_i]
+                                    _pm = _att[_i, :_plen].bool()
+                                    _rows.append({
+                                        "uid": str(batch.non_tensor_batch["uid"][_i]) if "uid" in batch.non_tensor_batch else None,
+                                        "prompt_ids": _p[_pm].tolist(),
+                                        "resp_ids": _res[_i, :_L].tolist(),
+                                        "loss_mask": _rm5[_i, :_L].int().tolist(),
+                                        "teacher_mask": (_tm[_i, :_L].int().tolist() if _tm is not None else None),
+                                    })
+                                torch.save(_rows, f"{os.environ['CRITIC_OPD_DUMP_BATCH']}_step{self.global_steps}.pt")
+                            except Exception as _e:
+                                print(f"[dump] 转储失败: {_e!r}", flush=True)
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)

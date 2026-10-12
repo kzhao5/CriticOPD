@@ -1044,6 +1044,10 @@ class AgentLoopWorker:
                     )
                     _lo = len(prompt_ids) + _nk          # 训练序列里 repair 的起点
                     if _lo + _nr <= teacher_logprobs.shape[0] and _flp.shape[0] >= _nr:
+                        if not getattr(type(self), "_fb_dbg", False):
+                            type(self)._fb_dbg = True
+                            print("[critic_fb] teacher mean logprob on the scored tokens: without context %.4f, with context %.4f (n=%d, n_kept=%d)"
+                                  % (float(teacher_logprobs[_lo:_lo + _nr].float().mean()), float(_flp[-_nr:].float().mean()), _nr, _nk), flush=True)
                         teacher_logprobs[_lo:_lo + _nr] = _flp[-_nr:]
                         teacher_ids[_lo:_lo + _nr] = _fid[-_nr:]
                         if teacher_token_logprobs is not None and _ftlp is not None:

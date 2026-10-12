@@ -144,6 +144,20 @@ def _cut_at_blank_line(tok, ids: list[int]) -> int:
 
 FEEDBACK_TMPL = ("\n\n[Teacher feedback] {fb}\n\nUsing this feedback, continue the solution from here. "
                  "Put your final answer in \\boxed{{}}.\n\n")
+# 基线 Critique-GRPO 的精炼指令,与官方实现(critique-GRPO/verl/critique_grpo/refinement_prompts.py)相同:
+# 新开一轮对话,user 消息里给出题目、原解答和批改,要求逐步推理重答。
+# (2026-10-10 冒烟:把批改接在原回答后面、在同一个 assistant 轮里续写时,学生只补一行最终答案,精炼退化成抄答案)
+CGRPO_REFINE_SYS = "You are a helpful assistant."
+CGRPO_REFINE_USER = (
+    "Given the following inputs:\n"
+    "**Question**: {question}\n"
+    "**Previous Solution**: {failed}\n"
+    "**Critique**: {critique}\n\n"
+    "Please re-answer by:\n"
+    "- Correcting potential errors identified in the critique, if they exist.\n"
+    "- Providing clear, step-by-step reasoning.\n"
+    "- Formatting the final answer as `\\boxed{{answer}}`.\n\n"
+    "Ensure the revised solution addresses all issues raised in the critique.")
 
 
 def _is_leadin(p):
@@ -426,6 +440,10 @@ class CriticOpdAgentLoop(AgentLoopBase):
     keep_correct = False
     ref_file = None
     critic_maxlen = 34817
+    critic_tokens_exact = False
+    rewriter = "student"
+    drop_wrong = False
+    fb_answer = False
     kerr = None
     prefix_loss = False
     critic_all = False
@@ -451,6 +469,14 @@ class CriticOpdAgentLoop(AgentLoopBase):
         self.keep_correct = os.environ.get("CRITIC_OPD_KEEP_CORRECT", "0") == "1"
         self.ref_file = os.environ.get("CRITIC_OPD_REF_FILE") or None
         self.critic_maxlen = int(os.environ.get("CRITIC_OPD_CRITIC_MAXLEN", "34817"))   # teacher 的 max_model_len
+        # 调参(批改输出上限):多错误模式默认把上限抬到至少 1024;设为 1 时严格按 CRITIC_OPD_CRITIC_TOKENS(可低于 1024)
+        self.critic_tokens_exact = os.environ.get("CRITIC_OPD_CRITIC_TOKENS_EXACT", "0") == "1"
+        # 消融:重写由 teacher 来写(上下文、预算、采样温度与学生重写相同),其余(前缀无损失、teacher 带批改打分)不变
+        self.rewriter = os.environ.get("CRITIC_OPD_REWRITER", "student").strip().lower()
+        # 基线:用参考答案判分,答错或写满上限的 rollout 不计损失、也不批改(只用答对的 rollout 做 OPD)
+        self.drop_wrong = os.environ.get("CRITIC_OPD_DROP_WRONG", "0") == "1"
+        # 消融:批改泄露答案(不过滤泄露答案的错误,并在反馈末尾直接给出参考答案)
+        self.fb_answer = os.environ.get("CRITIC_OPD_FB_ANSWER", "0") == "1"
         # k 消融:'1'/'2'/'3'/'last';不设则与原来完全一样。只在「保留出错段」下有意义。
         self.kerr = (os.environ.get("CRITIC_OPD_KERR", "").strip().lower() or None)
         # 前缀算损失:第一个错误所在段之前的学生 token 也按普通 OPD 训练(teacher 不看反馈);不设则与原来一样全部 mask
@@ -464,9 +490,17 @@ class CriticOpdAgentLoop(AgentLoopBase):
         # 退火(DAgger 式 beta 调度):"开始衰减步,衰减结束步,beta 下限"。答错的样本以概率 beta
         # 走 critic 修复,否则保留它自己的 rollout 按 plain OPD 训练。不设则恒为 1(即 R4GT)。
         _a = os.environ.get("CRITIC_OPD_ANNEAL", "").strip()
-        self.anneal = tuple(float(x) for x in _a.split(",")) if _a else None
+        self.anneal = tuple(float(x) for x in _a.replace(":", ",").split(",")) if _a else None   # sbatch --export 里用 ":" 分隔
         self.global_step = int(kwargs.get("critic_global_step", -1) or -1)
         self._grader = None
+        # 基线 OPSD-T:学生只看题目;teacher 在题目后多看一行参考答案,对整条 rollout 打分(不批改、不重写)
+        self.opsd = os.environ.get("CRITIC_OPD_OPSD", "0") == "1"
+        # 基线 Critique-GRPO:每题 n_init 条初始回答加 1 个精炼槽位(ROLLOUT_N = n_init + 1)。
+        # 只有一组初始回答全错时才批改、精炼;否则精炼槽位是空行(mask 全 0,不进优势基线)
+        self.cgrpo = os.environ.get("CRITIC_OPD_CGRPO", "0") == "1"
+        self.cgrpo_n_init = int(os.environ.get("CRITIC_OPD_CGRPO_N_INIT", "7"))
+        self.cgrpo_wait = float(os.environ.get("CRITIC_OPD_CGRPO_WAIT", "5400"))
+        self.rollout_max_len = int(getattr(self.rollout_config, "max_model_len", None) or 34817)
 
     @staticmethod
     def _disarm_sigalrm():
@@ -549,20 +583,30 @@ class CriticOpdAgentLoop(AgentLoopBase):
         except (TimeoutError, asyncio.TimeoutError, RuntimeError, OSError) as e:
             logger.warning("[critic_opd] 判分失败(%s),按答对处理(不触发 critic)", type(e).__name__)
             return True
-    async def _teacher_generate(self, prompt_ids, max_tokens):
+    async def _teacher_generate(self, prompt_ids, max_tokens, temperature=0.0, top_p=1.0):
         """让 teacher 在给定 prompt 上自由生成。teacher client 原本只用于打分
-        (max_tokens=1 + prompt_logprobs),换一组 sampling_params 就是自由生成。"""
+        (max_tokens=1 + prompt_logprobs),换一组 sampling_params 就是自由生成。批改用贪心;
+        teacher 重写(消融)用与学生 rollout 相同的温度。"""
         tm = self.teacher_manager
         if tm is None: return None
         key = next(iter(tm.teacher_model_configs))
         out = await tm.teacher_client[key].generate(
             request_id=uuid4().hex, prompt_ids=prompt_ids,
-            sampling_params={"max_tokens": max_tokens, "temperature": 0.0},
+            sampling_params={"max_tokens": max_tokens, "temperature": temperature, "top_p": top_p},
         )
         return out.token_ids
 
     _CNT = {"n": 0, "capped": 0, "correct": 0, "attempted": 0, "parsed": 0,
             "repaired": 0, "exc": 0}
+
+    def _dump(self, rec):
+        """分析用(图 2 的不匹配与可信度):CRITIC_OPD_DUMP_DIR 设了才写,每个进程一个 jsonl。"""
+        d = os.environ.get("CRITIC_OPD_DUMP_DIR")
+        if not d:
+            return
+        os.makedirs(d, exist_ok=True)
+        with open(f"{d}/agent_{os.getpid()}.jsonl", "a") as f:
+            f.write(json.dumps(rec) + "\n")
 
     def _tally(self, **kw):
         c = type(self)._CNT
@@ -585,7 +629,216 @@ class CriticOpdAgentLoop(AgentLoopBase):
             self._tally(exc=1)
             logger.error("[critic_opd] run() 异常,降级为普通 rollout:\n%s", traceback.format_exc())
             print("[critic_opd] EXCEPTION\n" + traceback.format_exc(), flush=True)
+            if self.cgrpo and int(kwargs.get("cgrpo_slot", -1)) >= self.cgrpo_n_init:
+                return await self._cgrpo_empty(list(kwargs["raw_prompt"]), {"cgrpo_exc": 1})
             return await self._plain(sampling_params, **kwargs)
+
+    async def _run_opsd(self, sampling_params, messages, mm, mmk, prompt_ids, **kwargs) -> AgentLoopOutput:
+        """OPSD-T(Penaloza et al. 2026;Zhao et al. 2026,教师换成外部 teacher):
+        学生在只有题目的 prompt 上采样;teacher 打分时 user 消息末尾多一行参考答案,整条 rollout 都按它打分。
+        复用 L_fb 的打分通道:critic_fb_prompt_ids = 带答案的 prompt,n_kept = 0,n_repair = 整条回答。"""
+        metrics = {}
+        with simple_timer("generate_sequences", metrics):
+            out: TokenOutput = await self.server_manager.generate(
+                request_id=uuid4().hex, prompt_ids=prompt_ids,
+                sampling_params=sampling_params, mm_processor_kwargs=mmk)
+        rlen = int(sampling_params.get("max_tokens") or self.response_length)
+        resp = out.token_ids[:rlen]
+        gt = None
+        rm = kwargs.get("reward_model")
+        if isinstance(rm, dict): gt = rm.get("ground_truth")
+        stats, fb = {"opsd": 1}, {}
+        if gt is not None and len(resp) > 0:
+            tmsg = [dict(m) for m in messages]
+            tmsg[-1]["content"] = f"{tmsg[-1]['content']}\n\n[Reference answer: {gt}]"
+            tids = await self.apply_chat_template(
+                tmsg, images=mm.get("images"), videos=mm.get("videos"),
+                audios=mm.get("audios"), mm_processor_kwargs=mmk)
+            fb = {"critic_fb_prompt_ids": list(tids), "critic_fb_n_kept": 0, "critic_fb_n_repair": len(resp)}
+            if not type(self)._DBG.get("opsd"):
+                type(self)._DBG["opsd"] = 1
+                print("[opsd] student prompt tail:", repr(self.tokenizer.decode(prompt_ids)[-200:]), flush=True)
+                print("[opsd] teacher prompt tail:", repr(self.tokenizer.decode(tids)[-260:]), flush=True)
+            # 只记指标:答对的比例;不怎么推理就直接写答案(答对且不超过 64 token);回答里提到参考答案
+            text = self.tokenizer.decode(resp, skip_special_tokens=True)
+            capped = len(out.token_ids) >= rlen
+            ok = (not capped) and await self._grade_async(text, gt)
+            short = bool(ok and len(resp) <= 64)
+            ref = bool(re.search(r"reference answer|\[reference", text, re.I))
+            stats.update({"opsd_correct": int(ok), "opsd_short_answer": int(short), "opsd_mentions_ref": int(ref)})
+            self._tally(**{k: 1 for k, v in (("opsd_correct", ok), ("opsd_short_answer", short),
+                                             ("opsd_mentions_ref", ref), ("capped", capped)) if v})
+        else:
+            self._tally(opsd_no_gt=1)
+        metrics.setdefault("num_preempted", out.num_preempted if out.num_preempted is not None else -1)
+        return AgentLoopOutput(
+            prompt_ids=prompt_ids, response_ids=resp, response_mask=[1] * len(resp),
+            response_logprobs=out.log_probs[:rlen] if out.log_probs is not None else None,
+            multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2, metrics=metrics,
+            extra_fields={**(out.extra_fields or {}), "critic_opd": stats, **fb})
+
+    # Critique-GRPO 的组内协调:同一题的 n_init + 1 个副本 uid 相同,且在同一个 AgentLoopWorker 里
+    # (repeat 是 interleave 的,chunk 按连续块切,每块正好是整数个组)。初始回答把结果登记在这里,
+    # 精炼槽位等组内全部登记后再决定要不要精炼。
+    _CG = {}
+    _DBG = {}
+
+    def _cg_entry(self, uid):
+        e = type(self)._CG.get(uid)
+        if e is None:
+            e = {"res": {}, "ev": asyncio.Event()}
+            type(self)._CG[uid] = e
+        return e
+
+    async def _cgrpo_empty(self, messages, stats, prompt_ids=None, mm=None, mmk=None) -> AgentLoopOutput:
+        """不精炼时的空行:1 个 token、mask 全 0,优势估计里不算进组均值,损失里也不出现。"""
+        if prompt_ids is None:
+            mm = await self.process_multi_modal_info(messages)
+            mmk = self._get_mm_processor_kwargs(mm.get("audios"))
+            prompt_ids = await self.apply_chat_template(
+                messages, images=mm.get("images"), videos=mm.get("videos"),
+                audios=mm.get("audios"), mm_processor_kwargs=mmk)
+        return AgentLoopOutput(
+            prompt_ids=prompt_ids, response_ids=[self.tokenizer.eos_token_id], response_mask=[0],
+            response_logprobs=[0.0], multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2,
+            metrics={"num_preempted": -1}, extra_fields={"critic_opd": stats, "cgrpo_role": 2})
+
+    async def _critique_text(self, messages, text, gt, capped):
+        """与 CriticOPD 最终版相同的批改:带参考答案的多错误批改(至多 5 条),去掉没写完的最后一条;
+        CRITIC_OPD_FB_ANSWER=1 时不过滤泄露答案的条目,并在末尾给出答案(与 critans 相同)。没有可用的条目时返回 None。"""
+        segs = segment(text)
+        body = "\n\n".join(f"[{i}] {seg}" for i, seg in enumerate(segs))
+        cmsg = [{"role": "system", "content": CRITIC_SYS_MULTI_CAPPED if capped else CRITIC_SYS_MULTI},
+                {"role": "user", "content":
+                 f"Problem:\n{messages[-1]['content']}\n\n"
+                 f"Correct answer (reference only -- never reveal it): {gt}\n\n"
+                 f"Student's solution, split into numbered segments:\n\n{body}"}]
+        cids = self.tokenizer.encode(self.tokenizer.apply_chat_template(
+            cmsg, add_generation_prompt=True, tokenize=False), add_special_tokens=False)
+        cmax = self.critic_max_tokens if self.critic_tokens_exact else max(1024, self.critic_max_tokens)
+        if len(cids) + cmax > self.critic_maxlen:
+            return None
+        ctok = await self._teacher_generate(cids, cmax)
+        if not ctok:
+            return None
+        ctext = self.tokenizer.decode(ctok, skip_special_tokens=True)
+        if len(ctok) >= cmax:
+            ctext = drop_incomplete_tail(ctext)
+        errs = parse_critic_multi(ctext, segs)
+        if not self.fb_answer:
+            errs = drop_leaky(errs, gt, text)
+        sel = kerr_select(errs, self.kerr or "last")
+        if not sel:
+            return None
+        fb = kerr_feedback(sel)
+        if self.fb_answer:
+            fb = f"{fb}\nThe correct final answer is {gt}."
+        return fb
+
+    async def _run_cgrpo(self, sampling_params, messages, mm, mmk, prompt_ids, **kwargs) -> AgentLoopOutput:
+        """Critique-GRPO(Zhang et al. 2025)的采样部分。槽位 0..n_init-1 是普通初始回答;
+        最后一个槽位等组内初始回答全部完成:全错时批改每一条、按官方指令新开一轮对话重答,优先选答对的那条
+        (没有就随机选一条)作为这一行的回答;否则返回空行。训练序列里只有题目和精炼回答,不含批改。"""
+        uid = str(kwargs.get("uid"))
+        slot = int(kwargs.get("cgrpo_slot", -1))
+        n0 = self.cgrpo_n_init
+        rlen = int(sampling_params.get("max_tokens") or self.response_length)
+        gt = None
+        rm = kwargs.get("reward_model")
+        if isinstance(rm, dict): gt = rm.get("ground_truth")
+
+        if slot < n0:
+            ent = self._cg_entry(uid)
+            rec = None
+            try:
+                metrics = {}
+                with simple_timer("generate_sequences", metrics):
+                    out: TokenOutput = await self.server_manager.generate(
+                        request_id=uuid4().hex, prompt_ids=prompt_ids,
+                        sampling_params=sampling_params, mm_processor_kwargs=mmk)
+                resp = out.token_ids[:rlen]
+                capped = len(out.token_ids) >= rlen
+                text = self.tokenizer.decode(resp, skip_special_tokens=True)
+                ok = (not capped) and gt is not None and await self._grade_async(text, gt)
+                rec = (text, capped, bool(ok))
+            finally:
+                ent["res"][slot] = rec            # 出错也要登记,否则精炼槽位一直等
+                if len(ent["res"]) >= n0:
+                    ent["ev"].set()
+            self._tally(cgrpo_init=1, **({"correct": 1} if ok else {}), **({"capped": 1} if capped else {}))
+            metrics.setdefault("num_preempted", out.num_preempted if out.num_preempted is not None else -1)
+            return AgentLoopOutput(
+                prompt_ids=prompt_ids, response_ids=resp, response_mask=[1] * len(resp),
+                response_logprobs=out.log_probs[:rlen] if out.log_probs is not None else None,
+                multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2, metrics=metrics,
+                extra_fields={**(out.extra_fields or {}), "critic_opd": {"cgrpo_slot": slot}, "cgrpo_role": 0})
+
+        ent = self._cg_entry(uid)
+        stats = {"cgrpo_slot": slot}
+        try:
+            await asyncio.wait_for(ent["ev"].wait(), timeout=self.cgrpo_wait)
+        except (TimeoutError, asyncio.TimeoutError):
+            stats["cgrpo_timeout"] = 1
+            self._tally(cgrpo_timeout=1)
+        res = dict(ent["res"])
+        type(self)._CG.pop(uid, None)
+        recs = [res.get(i) for i in range(n0)]
+        all_wrong = len(res) >= n0 and all(r is not None and not r[2] for r in recs)
+        if not all_wrong or gt is None or self.teacher_manager is None:
+            self._tally(cgrpo_skip=1)
+            return await self._cgrpo_empty(messages, stats, prompt_ids, mm, mmk)
+        self._tally(cgrpo_trigger=1)
+
+        async def refine(rec):
+            text, capped, _ = rec
+            fb = await self._critique_text(messages, text, gt, capped)
+            if not fb:
+                return None
+            rmsg = [{"role": "system", "content": CGRPO_REFINE_SYS},
+                    {"role": "user", "content": CGRPO_REFINE_USER.format(
+                        question=messages[-1]["content"], failed=text, critique=fb)}]
+            rids = await self.apply_chat_template(
+                rmsg, images=mm.get("images"), videos=mm.get("videos"),
+                audios=mm.get("audios"), mm_processor_kwargs=mmk)
+            if not type(self)._DBG.get("cgrpo"):
+                type(self)._DBG["cgrpo"] = 1
+                print("[cgrpo] refine prompt tail:", repr(self.tokenizer.decode(rids)[-900:]), flush=True)
+            budget = min(rlen, self.rollout_max_len - len(rids) - 1)
+            if budget < 256:
+                return None
+            r: TokenOutput = await self.server_manager.generate(
+                request_id=uuid4().hex, prompt_ids=list(rids),
+                sampling_params={**sampling_params, "max_tokens": budget}, mm_processor_kwargs=mmk)
+            ids = list(r.token_ids)[:rlen]
+            rcapped = len(r.token_ids) >= budget
+            ok = (not rcapped) and await self._verify_async(
+                self.tokenizer.decode(ids, skip_special_tokens=True), gt)
+            lp = list(r.log_probs[:len(ids)]) if r.log_probs is not None else [0.0] * len(ids)
+            if len(lp) < len(ids):
+                lp += [0.0] * (len(ids) - len(lp))
+            return ids, lp, bool(ok)
+
+        outs = await asyncio.gather(*[refine(r) for r in recs], return_exceptions=True)
+        cands = [o for o in outs if isinstance(o, tuple) and len(o[0]) > 0]
+        stats["cgrpo_n_refined"] = len(cands)
+        stats["cgrpo_n_refined_ok"] = sum(o[2] for o in cands)
+        if not cands:
+            self._tally(cgrpo_no_refine=1)
+            return await self._cgrpo_empty(messages, stats, prompt_ids, mm, mmk)
+        good = [o for o in cands if o[2]]
+        ids, lp, ok = random.choice(good or cands)
+        stats["cgrpo_refine_ok"] = int(ok)
+        stats["cgrpo_refine_len"] = len(ids)
+        _n = type(self)._DBG.get("cgrpo_pick", 0)
+        if _n < 3:
+            type(self)._DBG["cgrpo_pick"] = _n + 1
+            print(f"[cgrpo] picked refinement ({len(ids)} tok, ok={ok}; candidate lens {[len(o[0]) for o in cands]}):",
+                  repr(self.tokenizer.decode(ids)[:600]), flush=True)
+        self._tally(cgrpo_refined=1, **({"cgrpo_refine_ok": 1} if ok else {}))
+        return AgentLoopOutput(
+            prompt_ids=prompt_ids, response_ids=ids, response_mask=[1] * len(ids), response_logprobs=lp,
+            multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2, metrics={"num_preempted": -1},
+            extra_fields={"critic_opd": stats, "cgrpo_role": 1})
 
     async def _plain(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         """出错时的安全退路:就按 single_turn 的方式跑一次,不做 critic/修复。"""
@@ -623,6 +876,10 @@ class CriticOpdAgentLoop(AgentLoopBase):
         prompt_ids = await self.apply_chat_template(
             messages, images=mm.get("images"), videos=mm.get("videos"),
             audios=mm.get("audios"), mm_processor_kwargs=mmk)
+        if self.opsd:
+            return await self._run_opsd(sampling_params, messages, mm, mmk, prompt_ids, **kwargs)
+        if self.cgrpo and int(kwargs.get("cgrpo_slot", -1)) >= 0:
+            return await self._run_cgrpo(sampling_params, messages, mm, mmk, prompt_ids, **kwargs)
 
         metrics = {}
         with simple_timer("generate_sequences", metrics):
@@ -653,6 +910,15 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 stats["critic_on_correct"] = 1
                 self._tally(correct_critiqued=1)
 
+        if self.drop_wrong and (capped or not is_correct):
+            stats["dropped_wrong"] = 1
+            if metrics.get("num_preempted") is None:
+                metrics["num_preempted"] = out.num_preempted if out.num_preempted is not None else -1
+            return AgentLoopOutput(
+                prompt_ids=prompt_ids, response_ids=resp, response_mask=[0] * len(resp),
+                response_logprobs=out.log_probs[:rlen] if out.log_probs is not None else None,
+                multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2, metrics=metrics,
+                extra_fields={**(out.extra_fields or {}), "critic_opd": stats})
         if capped:
             self._tally(capped=1)
         elif not need:
@@ -707,7 +973,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
             if cids is None:
                 cids = self.tokenizer.apply_chat_template(cmsg, add_generation_prompt=True, tokenize=False)
                 cids = self.tokenizer.encode(cids, add_special_tokens=False)
-            _cmax = max(1024, self.critic_max_tokens) if self.kerr else self.critic_max_tokens
+            _cmax = max(1024, self.critic_max_tokens) if (self.kerr and not self.critic_tokens_exact) else self.critic_max_tokens
             ctok = await self._teacher_generate(cids, _cmax)
             if ctok:
                 ctext = self.tokenizer.decode(ctok, skip_special_tokens=True)
@@ -721,7 +987,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
                     errs = parse_critic_multi(ctext, segs)
                     n_raw = len(errs)
                     _first_raw = errs[0][0] if errs else None   # 前缀损失的边界:批改找到的第一个错误(含被泄露过滤去掉的)
-                    errs = drop_leaky(errs, gt, text)
+                    if not self.fb_answer:
+                        errs = drop_leaky(errs, gt, text)
                     if n_raw > len(errs):
                         stats["critic_n_leak"] = n_raw - len(errs)
                         self._tally(kerr_leak_drop=n_raw - len(errs))
@@ -744,6 +1011,9 @@ class CriticOpdAgentLoop(AgentLoopBase):
                         stats["cut_at_end"] = 1
                     if self.fb_mode == "generic":
                         fb = GENERIC_FEEDBACK
+                    if self.fb_answer:
+                        fb = f"{fb}\nThe correct final answer is {gt}."
+                        stats["fb_answer"] = 1
                     kept_txt = "\n\n".join(keep)
                     _k = _tok_prefix_for_text(self.tokenizer, resp, kept_txt)
                     kept_ids = resp[:_k]
@@ -755,13 +1025,25 @@ class CriticOpdAgentLoop(AgentLoopBase):
                     budget = max(256, rlen - len(kept_ids))
                     if self.trunc:
                         budget = min(budget, self.trunc_max)
-                    with simple_timer("repair", metrics):
-                        r: TokenOutput = await self.server_manager.generate(
-                            request_id=uuid4().hex, prompt_ids=prompt_ids + ctx_ids,
-                            sampling_params={**sampling_params, "max_tokens": budget},
-                            mm_processor_kwargs=mmk)
-                    _rep_ids = list(r.token_ids)
-                    _rep_lp = list(r.log_probs) if r.log_probs is not None else None
+                    if self.rewriter == "teacher":
+                        # teacher 写重写段:学生采样时的 logprob 不存在,只用于监控指标(bypass_mode=false、
+                        # rollout_is/rs 关闭时 old_log_probs 由 actor 重算),填 0
+                        with simple_timer("repair", metrics):
+                            _tids = await self._teacher_generate(
+                                prompt_ids + ctx_ids, budget,
+                                temperature=sampling_params.get("temperature", 1.0), top_p=sampling_params.get("top_p", 1.0))
+                        r = out
+                        _rep_ids = list(_tids or [])
+                        _rep_lp = None
+                        stats["teacher_rewrite"] = 1
+                    else:
+                        with simple_timer("repair", metrics):
+                            r: TokenOutput = await self.server_manager.generate(
+                                request_id=uuid4().hex, prompt_ids=prompt_ids + ctx_ids,
+                                sampling_params={**sampling_params, "max_tokens": budget},
+                                mm_processor_kwargs=mmk)
+                        _rep_ids = list(r.token_ids)
+                        _rep_lp = list(r.log_probs) if r.log_probs is not None else None
                     if self.trunc:
                         _kc = _cut_at_blank_line(self.tokenizer, _rep_ids)
                         _rep_ids = _rep_ids[:_kc]
@@ -811,6 +1093,14 @@ class CriticOpdAgentLoop(AgentLoopBase):
                                 _fb = {"critic_fb_prompt_ids": prompt_ids + ctx_ids,
                                        "critic_fb_n_kept": len(kept_ids),
                                        "critic_fb_n_repair": _nrep}
+                        if os.environ.get("CRITIC_OPD_DUMP_DIR"):
+                            _orig = list(out.token_ids[:rlen])
+                            _fe = (_tok_prefix_for_text(self.tokenizer, _orig, "\n\n".join(segs[:first_idx]))
+                                   if first_idx is not None else None)
+                            self._dump({"uid": str(kwargs.get("uid")), "gt": str(gt), "prompt_ids": list(prompt_ids),
+                                        "orig_ids": _orig, "correct": bool(is_correct), "capped": bool(capped),
+                                        "repaired": 1, "kept_len": len(kept_ids), "first_err_tok": _fe, "fb": fb,
+                                        "ctx_ids": list(ctx_ids), "rep_ids": list(resp[len(kept_ids):])})
                         return AgentLoopOutput(
                             prompt_ids=prompt_ids, response_ids=resp, response_mask=mask,
                             response_logprobs=_lp,
@@ -821,6 +1111,9 @@ class CriticOpdAgentLoop(AgentLoopBase):
 
         if metrics.get("num_preempted") is None:
             metrics["num_preempted"] = out.num_preempted if out.num_preempted is not None else -1
+        if os.environ.get("CRITIC_OPD_DUMP_DIR"):
+            self._dump({"uid": str(kwargs.get("uid")), "gt": str(gt), "prompt_ids": list(prompt_ids),
+                        "orig_ids": list(resp), "correct": bool(is_correct), "capped": bool(capped), "repaired": 0})
         return AgentLoopOutput(
             prompt_ids=prompt_ids, response_ids=resp, response_mask=[1] * len(resp),
             response_logprobs=out.log_probs[:rlen] if out.log_probs is not None else None,

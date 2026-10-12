@@ -3,14 +3,15 @@
 本仓库是论文 Qwen3 主表实验**实际使用的那一版代码**,原样上传,没有事后整理。用途:在新的模型家族(Gemma 3)上用完全相同的训练和评测设置复现主表(全部 baseline + CriticOPD,多 seed)。跨模型只跑主表,不做消融和调参。
 
 - 训练代码基于上游 [zju-real/Relay-OPD](https://github.com/zju-real/Relay-OPD) 的提交 `eab2145`(2026-07-29),其中 `relay-opd/` 是改过的 verl。上游许可证见 `relay-opd/LICENSE`(Apache-2.0)。
-- 我们对上游的全部改动:`docs/upstream_diff.patch`(改了 19 个文件),另新增 3 个文件:`relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(CriticOPD 主体)、`relay-opd/verl/utils/semantic_eos.py`、`relay-opd/opd/patches/tb_steer_traj.py`。
+- 我们对上游的全部改动:`docs/upstream_diff.patch`(改了 21 个文件,2026-10-12 重新生成),另新增 3 个文件:`relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(CriticOPD 主体)、`relay-opd/verl/utils/semantic_eos.py`、`relay-opd/opd/patches/tb_steer_traj.py`。
 - 所有脚本里的路径都是我们集群上的绝对路径,需要按「七、需要替换的路径」改成你的。
 
-> **CriticOPD 最终版(2026-10-04 确定,跨模型请用这一版):** 批改老师列出**全部**错误(至多 5 个),学生在**最后一个**错误处断开、看着依次列出的全部反馈续写。
-> 启动:`ARM=R4GTKL2K bash criticopd/submit_arm.sh`,或 `ONLY=critic bash multiseed/submit.sh`(多 seed,训完自动评测)。
-> 与早期的 R4GT(只找第一个错误)相比只多三处:多错误提示词 `CRITIC_SYS_MULTI`(`CRITIC_OPD_KERR=last`);反馈里写出标准答案的错误先去掉(`drop_leaky`);
-> 批改输出上限 2048(`CRITIC_OPD_CRITIC_TOKENS=2048`),仍被截断时丢掉最后那条没写完的错误(`drop_incomplete_tail`)。
-> 我们的 Qwen3-1.7B 结果:R4GT@40 六项 52.35;全部错误(上限 1024)@40 52.99;最终版正在跑 3 个 seed。
+> **CriticOPD 最终版(2026-10-10 更新,跨模型请用这一版):** 在 10-04 版(批改老师列出**全部**错误,至多 5 个;学生在**最后一个**错误处断开,看着依次列出的全部反馈续写)的基础上,
+> 反馈末尾附上正确答案 `The correct final answer is X.`,并且不再去掉反馈里写出答案的错误(`CRITIC_OPD_FB_ANSWER=1`)。
+> 启动:`ONLY=critans bash multiseed/submit.sh`(多 seed,训完自动评测);环境变量 = `multiseed/submit.sh` 里的 `CRIT_ENV` 加 `CRITIC_OPD_FB_ANSWER=1`。
+> 10-04 版的其余设置不变:多错误提示词 `CRITIC_SYS_MULTI`(`CRITIC_OPD_KERR=last`);批改输出上限 2048(`CRITIC_OPD_CRITIC_TOKENS=2048`),仍被截断时丢掉没写完的最后一条错误。
+> 我们的结果(三个 seed 的六项平均):Qwen3-1.7B @40 为 54.65(`criticopd_answer_pt17b`)。Qwen3-0.6B 上这一版 @40 的三个 seed 为 36.50 / 36.08 / 36.40,
+> 低于不给答案的 10-04 版(`criticopd_final_pt06b`,38.46)。
 
 ## 目录
 
@@ -41,12 +42,14 @@
 | SFT | `opd/scripts/baselines/sft.sh` | 交叉熵(teacher 离线解答) | `sft_pt17b` @40 | 合作者提供 @139 |
 | KD(SeqKD) | `opd/scripts/baselines/seqkd.sh` | top-128 前向 KL(teacher 离线解答) | `seqkd_pt17b` @139 | 合作者提供 @139 |
 | GRPO | `opd/scripts/baselines/grpo.sh` | GRPO,每题 8 条,无 KL | `grpo_pt17b` @120 | `grpo_pt06b` @80 |
+| Critique-GRPO | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_CGRPO=1`(见「二之二」) | 每题 7 条初始回答 + 1 条批改后的精炼;Dr.GRPO 优势,无裁剪比率,精炼 token 用 p/(p+0.1) 塑形;无 teacher 蒸馏 | `cgrpo_pt17b_seed{42,43,44}` @40 | `cgrpo_pt06b_seed{42,43,44}` @40 |
 | OPD | `opd/scripts/baselines/opd.sh` | k1 逆 KL 估计 + 策略梯度 | `opd_1p7b` @80 | `opd_pt06b` @40 |
+| OPSD-T | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_OPSD=1`(见「二之二」) | 同 OPD,teacher 打分时 user 消息末尾多一行参考答案 | `opsdt_pt17b_seed{42,43,44}` @60 | `opsdt_pt06b_seed{42,43,44}` @80 |
 | TRD | `opd/scripts/baselines/trd.sh` | top-128 前向 KL(teacher 改写学生解答) | `trd_pt17b` @40 | 合作者提供 @139 |
 | FastOPD | `opd/scripts/baselines/fastopd/8192.sh` | 同 OPD,回答上限 8192 | `fastopd8192_1p7b` @60 | `fastopd8192_pt06b` @40 |
 | SKD | `opd/scripts/baselines/skd.sh` | 学生起草、teacher top-5 接受,top-128 前向 KL | `skd_pt17b` @120 | `skd_pt06b` @40 |
 | RelayOPD | `opd/scripts/relay_opd/train.sh` | `relay_opd` | `relay_1p7b` @40 | `relay_pt06b` @60 |
-| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二) | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_final_pt17b_seed{42,43,44}` @40(进行中);上限 1024 的同一算法 `criticopd_R4GTKL_pt17b` @40 为 52.99 | `criticopd_final_pt06b_seed{42,43,44}`,训到 60,评测 40 和 60(进行中) |
+| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二),最终版另加 `CRITIC_OPD_FB_ANSWER=1` | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_answer_pt17b_seed{42,43,44}` @40 | `criticopd_answer_pt06b_seed{42,43,44}`,训到 80,评测 40、60、80 |
 
 **所选步数**:每个方法在训练中评测过的 checkpoint 里,取数学前四项(AIME24、AIME25、AMC23、MATH500)平均最高的一个。所有方法都是恒定学习率,新 seed 只需训到这一步即可,与训到更远再回看完全等价。
 
@@ -71,30 +74,52 @@ SIZE=0.6B bash multiseed/submit.sh     # 0.6B
 
 ## 二、CriticOPD 的实现位置
 
-全部在 `relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(行号以本仓库为准),由环境变量开关控制。最终版对应 `criticopd/submit_arm.sh` 里的 `ARM=R4GTKL2K`:
+全部在 `relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(行号以本仓库为准),由环境变量开关控制。最终版对应 `multiseed/submit.sh` 里的 `critans`(10-04 版是 `critic`,即下面的开关去掉 `CRITIC_OPD_FB_ANSWER=1`):
 
 ```
 CRITIC_OPD_ENABLE=1 CRITIC_OPD_USE_FEEDBACK=1 CRITIC_OPD_SPLICE=after CRITIC_OPD_LOSS=fb CRITIC_OPD_GIVE_GT=1
-CRITIC_OPD_KERR=last CRITIC_OPD_CRITIC_TOKENS=2048
+CRITIC_OPD_KERR=last CRITIC_OPD_CRITIC_TOKENS=2048 CRITIC_OPD_FB_ANSWER=1
 CRITIC_OPD_TRUNC=0 CRITIC_OPD_KEEP_CORRECT=0 CRITIC_OPD_ANNEAL= CRITIC_OPD_REF_FILE=   ROLLOUT_N=1
 并在 Hydra 里设 actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent
 ```
 
 | 环节 | 位置 |
 |---|---|
-| 哪些 rollout 送去 critic | `run()` 第 626–630 行:写完的用标准答案判分,答错才送;被截断(写满 16384)的在 `GIVE_GT=1` 时也送,critic 认为路线没问题会回 `NONE` |
+| 哪些 rollout 送去 critic | `run()`(第 623 行)第 902–908 行:写完的用标准答案判分,答错才送;被截断(写满 16384)的在 `GIVE_GT=1` 时也送,critic 认为路线没问题会回 `NONE` |
 | 解答切段 | `segment()`(按空行切段) |
-| critic 提示词 | `_MULTI_RULES` / `CRITIC_SYS_MULTI` / `CRITIC_SYS_MULTI_CAPPED`(第 190–220 行);用户消息在第 668 行附近(题目 + 标准答案 + 编号后的各段) |
-| critic 输出上限与截断 | 第 686–693 行:上限 `max(1024, CRITIC_OPD_CRITIC_TOKENS)` = 2048;撞到上限时 `drop_incomplete_tail()`(第 246 行)去掉最后那块没写完的错误 |
-| 输出解析(ERROR / SEGMENT / QUOTE / FEEDBACK / NONE) | `parse_critic_multi()` 第 222 行:按 `SEGMENT:` 分块,每块按引文在原文中定位,定位不到才退回段号;去重、按段号排序,至多 5 个;`NONE` 返回空 |
-| 去掉泄露答案的错误 | 第 699 行 `drop_leaky()`(第 261–278 行):反馈里出现标准答案(独立成词)而学生原文里没有的,整条去掉 |
-| 选断点、拼反馈 | 第 703 行 `kerr_select(errs, "last")` 取全部错误,断点为最后一个;`kerr_feedback()`(第 279 行)把各条反馈编号拼成一段 |
-| 保留前缀、插入反馈 | 第 714 行起:保留到最后一个错误所在段(含该段),按 token 对齐截断;在前缀后接 `FEEDBACK_TMPL` 让学生续写,续写预算 = 16384 − 前缀长度 |
-| 训练序列去掉反馈 | 第 740–741 行:训练序列 = 保留前缀(mask 0)+ 学生续写(mask 1),反馈文字不进序列,只对续写算损失 |
-| teacher 带反馈打分(L_fb) | 第 775 行把「题目 + 前缀 + 反馈」交出;`relay-opd/verl/experimental/agent_loop/agent_loop.py` 第 1033 行起用它让 teacher 重新给续写 token 打分,覆盖训练序列里续写那几行的 teacher logprob |
-| 训练指标 | `relay-opd/verl/trainer/ppo/ray_trainer.py` 第 2107 行起(`critic_opd/repair_seq_frac`、`repair_tok_frac`);agent loop 的计数里 `kerr_k*`(实际用到几个错误)、`kerr_leak_drop`、`kerr_trunc_drop` |
+| critic 提示词 | `_MULTI_RULES` / `CRITIC_SYS_MULTI` / `CRITIC_SYS_MULTI_CAPPED`(第 204–235 行);消息在第 958 行(题目 + 标准答案 + 编号后的各段) |
+| critic 输出上限与截断 | 第 976 行:上限 `max(1024, CRITIC_OPD_CRITIC_TOKENS)` = 2048;撞到上限时第 983 行 `drop_incomplete_tail()`(第 267 行)去掉最后那块没写完的错误 |
+| 输出解析(ERROR / SEGMENT / QUOTE / FEEDBACK / NONE) | `parse_critic_multi()` 第 243 行:按 `SEGMENT:` 分块,每块按引文在原文中定位,定位不到才退回段号;去重、按段号排序,至多 5 个;`NONE` 返回空 |
+| 泄露答案的错误 | 第 990–991 行:`CRITIC_OPD_FB_ANSWER=1`(最终版)时**不**过滤;10-04 版用 `drop_leaky()`(第 294 行)去掉反馈里写出标准答案(独立成词)而学生原文里没有的条目 |
+| 选断点、拼反馈 | 第 995 行 `kerr_select(errs, "last")` 取全部错误,断点为最后一个;`kerr_feedback()`(第 300 行)把各条反馈编号拼成一段;最终版在第 1014 行起于末尾附上正确答案 |
+| 保留前缀、插入反馈 | 第 1019–1023 行:保留到最后一个错误所在段(含该段),按 token 对齐截断;在前缀后接 `FEEDBACK_TMPL`(第 145 行)让学生续写,续写预算 = 16384 − 前缀长度 |
+| 训练序列去掉反馈 | 第 1054–1059 行:训练序列 = 保留前缀(mask 0)+ 学生续写(mask 1),反馈文字不进序列,只对续写算损失 |
+| teacher 带反馈打分(L_fb) | 第 1093 行把「题目 + 前缀 + 反馈」交出;`relay-opd/verl/experimental/agent_loop/agent_loop.py` 第 1033 行起用它让 teacher 重新给续写 token 打分,覆盖训练序列里续写那几行的 teacher logprob |
+| 训练指标 | `relay-opd/verl/trainer/ppo/ray_trainer.py` 第 2137 行起(`critic_opd/repair_seq_frac`、`repair_tok_frac`);agent loop 的计数里 `kerr_k*`(实际用到几个错误)、`kerr_leak_drop`、`kerr_trunc_drop` |
 
 critic 就是 teacher 本身(Qwen3-4B-Instruct-2507),贪心解码(温度 0)。只找第一个错误的旧版(R4GT)用 `CRITIC_SYS_GT` 和 `parse_critic()`,输出上限 512。其余开关(`REF_FILE`、`TRUNC`、`KEEP_CORRECT`、`ANNEAL` 等)是消融,默认关闭。
+
+## 二之二、新增的两个 baseline:OPSD-T 与 Critique-GRPO(2026-10-12)
+
+两者都复用 CriticOPD 的 agent loop(`critic_opd_agent_loop.py`),由环境变量开关;完整的环境变量与 Hydra 参数见 `multiseed/submit.sh` 里的 `opsdt` 与 `cgrpo` 两行(第 139–145 行)。
+
+**OPSD-T**(OPSD 换成外部 teacher):学生只看题目采样一条回答;teacher 打分时 user 消息末尾多一行 `[Reference answer: <答案>]`,整条回答都按这个 prompt 打分。实现在 `_run_opsd()`(第 636 行),复用 L_fb 的打分通道(`critic_fb_n_kept = 0`,`critic_fb_n_repair` = 整条回答)。
+开关:`ROLLOUT_N=1 AGENT_WORKERS=2 MAX_RESPONSE_LENGTH=16384 CRITIC_OPD_OPSD=1 CRITIC_OPD_LOSS=fb`,外加 `actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent`。训到 80 步,在 20、40、60、80 评测。
+
+**Critique-GRPO**(按官方实现,批改给出参考答案):每题 7 条初始回答;7 条全错时,teacher 批改其中一条(提示词与 CriticOPD 相同,反馈末尾附正确答案,`CRITIC_OPD_FB_ANSWER=1`),学生在新的一轮对话里按官方精炼提示词(`CGRPO_REFINE_SYS` / `CGRPO_REFINE_USER`,第 150 行起)重答,作为第 8 条;否则第 8 条是空位(mask 0,不计入组均值)。实现在 `_run_cgrpo()`(第 738 行)与 `_cg_entry()`(第 686 行)。
+优势为 Dr.GRPO(`relay-opd/verl/trainer/ppo/core_algos.py` 第 334 行,`ADV_ESTIMATOR=critique_grpo`);损失为 `compute_policy_loss_critique_grpo()`(同文件第 1402 行):初始回答用无裁剪的比率,精炼 token 用 p/(p+0.1) 塑形;`relay-opd/verl/workers/utils/losses.py` 第 105 行按 `loss_mode == "critique_grpo"` 分支。
+其余参数:`seq-mean-token-sum-norm`、`loss_scale_factor=16384`、`entropy_coeff=0.001`、`distillation_loss_coef=0`(不做 teacher 蒸馏);开关 `CRITIC_OPD_CGRPO=1 CRITIC_OPD_CGRPO_N_INIT=7 USE_TASK_REWARDS=True`。训到 120 步,在 40、80、120 评测。
+
+**启动**:`bash multiseed/submit_new_baselines.sh` 一次提交两个方法 × 两个学生 × 三个 seed,训练与评测全自动(seed 42 评测全部候选步,按前四项均值选步;seed 43/44 只评所选的一步)。只跑一部分时用 `METHODS="opsdt" SIZES="1.7B"` 这类环境变量。
+
+**我们的结果**(三个 seed 的六项平均,统一协议):
+
+| | Qwen3-1.7B | Qwen3-0.6B |
+|---|---|---|
+| OPSD-T | 51.01(@60) | 36.62(@80) |
+| Critique-GRPO | 31.85(@40) | 14.23(@40) |
+
+Critique-GRPO 在两个学生上都明显低于其他方法,在 0.6B 上训练崩溃;我们按官方设置跑,没有为它调参。
 
 ## 三、数据
 

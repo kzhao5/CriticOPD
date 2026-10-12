@@ -17,14 +17,14 @@ FIXED = {   # 只评一次的行(论文现值)
 }
 # 方法  -> (seed 42 的运行名, seed 43/44 的基础名, 所选步数)
 SPEC = {
-    "0.6B": [("SFT", "sft_pt06b", "sft_pt06b", 139), ("KD", "seqkd_pt06b", "seqkd_pt06b", 139), ("GRPO", "grpo_pt06b", "grpo_pt06b", 80),
-             ("OPD", "opd_pt06b", "opd_pt06b", 40), ("TRD", "trd_pt06b", "trd_pt06b", 139), ("FastOPD", "fastopd8192_pt06b", "fastopd8192_pt06b", 40),
+    "0.6B": [("SFT", "sft_pt06b", "sft_pt06b", 139), ("KD", "seqkd_pt06b", "seqkd_pt06b", 139), ("GRPO", "grpo_pt06b", "grpo_pt06b", 80), ("Critique-GRPO", "cgrpo_pt06b_seed42", "cgrpo_pt06b", 40),
+             ("OPD", "opd_pt06b", "opd_pt06b", 40), ("OPSD-T", "opsdt_pt06b_seed42", "opsdt_pt06b", 80), ("FastOPD", "fastopd8192_pt06b", "fastopd8192_pt06b", 40), ("TRD", "trd_pt06b", "trd_pt06b", 139),
              ("SKD", "skd_pt06b", "skd_pt06b", 40), ("RelayOPD", "relay_pt06b", "relay_pt06b", 60),
              ("CriticOPD", "criticopd_final_pt06b_seed42", "criticopd_final_pt06b", None)],
-    "1.7B": [("SFT", "sft_pt17b", "sft_pt17b", 40), ("KD", "seqkd_pt17b", "seqkd_pt17b", 139), ("GRPO", "grpo_pt17b", "grpo_pt17b", 120),
-             ("OPD", "opd_1p7b", "opd_1p7b", 80), ("TRD", "trd_pt17b", "trd_pt17b", 40), ("FastOPD", "fastopd8192_1p7b", "fastopd8192_1p7b", 60),
+    "1.7B": [("SFT", "sft_pt17b", "sft_pt17b", 40), ("KD", "seqkd_pt17b", "seqkd_pt17b", 139), ("GRPO", "grpo_pt17b", "grpo_pt17b", 120), ("Critique-GRPO", "cgrpo_pt17b_seed42", "cgrpo_pt17b", 40),
+             ("OPD", "opd_1p7b", "opd_1p7b", 80), ("OPSD-T", "opsdt_pt17b_seed42", "opsdt_pt17b", 60), ("FastOPD", "fastopd8192_1p7b", "fastopd8192_1p7b", 60), ("TRD", "trd_pt17b", "trd_pt17b", 40),
              ("SKD", "skd_pt17b", "skd_pt17b", 120), ("RelayOPD", "relay_1p7b", "relay_1p7b", 40),
-             ("CriticOPD", "criticopd_final_pt17b_seed42", "criticopd_final_pt17b", 40)],
+             ("CriticOPD", "criticopd_answer_pt17b_seed42", "criticopd_answer_pt17b", 40)],
 }
 
 
@@ -83,8 +83,12 @@ def cells(scale, name):
 
 def fmt(x, sd, rank):
     s = f"{x:.2f}"
-    s = f"\\textbf{{{s}}}" if rank == 0 else (f"\\underline{{{s}}}" if rank == 1 else s)
+    s = f"\\textbf{{{s}}}" if rank == 0 else s                      # 只标最好的(2026-10-06 起不标第二)
     return s + (f"$_{{\\pm {sd:.2f}}}$" if sd is not None else "")
+
+
+GROUP_START = {"SFT", "OPD", "FastOPD"}               # 分组:标准后训练 | OPD | 应对可恢复性下降的方法(含 CriticOPD)
+GROUP_RULE = "\\arrayrulecolor{black!35}\\specialrule{0.35pt}{1.2pt}{1.2pt}\\arrayrulecolor{black}\n"
 
 
 def block(scale):
@@ -100,6 +104,7 @@ def block(scale):
     st = FIXED[f"Student-{scale}"]
     L.append("Student\n& " + " & ".join(f"{x:.2f}" for x in st) + f"\n& {np.mean(st):.2f} \\\\\n")
     for n in names:
+        if n in GROUP_START: L.append(GROUP_RULE)
         v, sd, step = shown[n]
         label = "\\textbf{\\ours{}}" if n == "CriticOPD" else n
         label += f"$_{{@{step}}}$" if step else ""
@@ -170,6 +175,13 @@ def paragraph():
         lines.append(f"Among the students, \\ours{{}} obtains {'the best average and ' if best_avg else ''}the best accuracy on")
         lines.append(f"{num[len(best)]} benchmarks.")
     lines.append(f"Its average is {vs('FastOPD')} and {vs('RelayOPD')}{rb_txt}.")
+    s6 = {n: cells("0.6B", n)[0] for n in names}
+    c6, o6 = s6.get("CriticOPD"), s6.get("OPD")
+    if c6 is not None and o6 is not None:
+        def vs6(n):
+            g = r2(c6[6]) - r2(s6[n][6]); return f"${abs(g):.2f}$ points {'above' if g >= 0 else 'below'} that of {n}"
+        lines.append(f"For the Qwen3-0.6B student, \\ours{{}} raises the average of OPD from ${r2(o6[6]):.2f}$ to ${r2(c6[6]):.2f}$, "
+                     f"which is {vs6('RelayOPD')} and {vs6('FastOPD')}.")
     lines += ["Both baselines change how rollouts are generated, whereas \\ours{} changes how",
               "incorrect rollouts are supervised."]
     assert min(d[:3]) > max(d[3:6]), "竞赛题增益最大的说法不再成立,需改写正文"

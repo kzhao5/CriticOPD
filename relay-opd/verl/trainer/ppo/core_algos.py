@@ -331,6 +331,36 @@ def compute_grpo_outcome_advantage(
     return scores, scores
 
 
+@register_adv_est("critique_grpo")
+def compute_critique_grpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Critique-GRPO (Zhang et al., 2025): the group of a prompt mixes its initial rollouts with the selected
+    refinement, and the advantage is the reward minus the group mean without std normalization, as in the
+    official implementation (grpo_use_std=False). A row whose response_mask is all zero is an unused
+    refinement slot; it is left out of the group mean and gets zero advantage."""
+    scores = token_level_rewards.sum(dim=-1)
+    valid = response_mask.sum(dim=-1) > 0
+    id2score = defaultdict(list)
+    with torch.no_grad():
+        for i in range(scores.shape[0]):
+            if valid[i]:
+                id2score[index[i]].append(scores[i])
+        id2mean = {k: (torch.mean(torch.stack(v)) if len(v) > 1 else torch.tensor(0.0, device=scores.device))
+                   for k, v in id2score.items()}
+        adv = torch.zeros_like(scores)
+        for i in range(scores.shape[0]):
+            if valid[i]:
+                adv[i] = scores[i] - id2mean[index[i]]
+        adv = adv.unsqueeze(-1) * response_mask
+    return adv, adv
+
+
 @register_adv_est(AdvantageEstimator.GRPO_VECTORIZED)
 def compute_grpo_vectorized_outcome_advantage(
     token_level_rewards: torch.Tensor,
@@ -1365,6 +1395,49 @@ def compute_policy_loss_vanilla(
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
         "actor/ppo_kl": ppo_kl.detach().item(),
         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+    }
+    return pg_loss, pg_metrics
+
+
+def compute_policy_loss_critique_grpo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    refine_mask: torch.Tensor,
+    loss_agg_mode: str = "seq-mean-token-sum-norm",
+    config: Optional[ActorConfig] = None,
+    shaping_gamma: float = 0.1,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Critique-GRPO policy loss, following compute_token_on_off_policy_loss of the official repository
+    (zhangxy-2019/critique-GRPO) with its released settings: loss_remove_clip=True and
+    off_policy_reshape="p_div_p_0.1". Tokens of initial rollouts use the unclipped importance ratio; tokens of
+    the refinement use the shaping f(p) = p / (p + gamma) of the current policy probability, which up-weights
+    low-probability tokens. The official code divides the token sum by the maximum response length
+    (loss_remove_token_mean); here this is loss_agg_mode="seq-mean-token-sum-norm" with a constant
+    loss_scale_factor, which avoids the dependence of the official scaling on dynamic micro-batch sizes."""
+    assert config is not None
+    negative_approx_kl = torch.clamp(log_prob - old_log_prob, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    on_losses = -advantages * ratio
+    prob = torch.exp(log_prob)
+    off_ratio = prob / (prob + shaping_gamma)
+    off_losses = -advantages * off_ratio
+    refine = refine_mask.bool() & response_mask.bool()
+    pg_losses = torch.where(refine, off_losses, on_losses)
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+    )
+    on_mask = response_mask.bool() & ~refine
+    pg_metrics = {
+        "actor/ppo_kl": verl_F.masked_mean(-negative_approx_kl, response_mask).detach().item(),
+        "actor/cgrpo_refine_tok_frac": (refine.sum() / response_mask.sum().clamp(min=1)).detach().item(),
+        "actor/cgrpo_on_ratio_mean": (verl_F.masked_mean(ratio, on_mask).detach().item() if on_mask.any() else 1.0),
+        "actor/cgrpo_off_ratio_mean": (verl_F.masked_mean(off_ratio, refine).detach().item() if refine.any() else 0.0),
+        # 对照:同一个 f(p) 在初始回答 token 上的均值;两者差很多说明精炼对学生是离策略的
+        "actor/cgrpo_on_f_mean": (verl_F.masked_mean(off_ratio, on_mask).detach().item() if on_mask.any() else 0.0),
+        "actor/cgrpo_refine_logp_mean": (verl_F.masked_mean(log_prob, refine).detach().item() if refine.any() else 0.0),
+        "actor/cgrpo_on_logp_mean": (verl_F.masked_mean(log_prob, on_mask).detach().item() if on_mask.any() else 0.0),
     }
     return pg_loss, pg_metrics
 

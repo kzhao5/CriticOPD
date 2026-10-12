@@ -14,12 +14,12 @@ TPQ=$PWD/outputs/offline_data/teacher_traj_pt17b/teacher_trajectories.parquet
 DPQ=$PWD/outputs/offline_data/trd_pt17b/trd_trajectories.parquet
 DAPO=/home/kzhao2/OPD/datasets/dapo-math-17k.parquet
 REG=multiseed/jobs.tsv
-PARTS=("--partition=cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 2026-10-04 16:00 dw-1-3、dw-1-4 空着的卡会在启动前杀作业;dw-1-2 已恢复。cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
+PARTS=("--partition=cs --qos=cs --exclude=cs-1-2,cs-1-3,cs-1-4" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 2026-10-04 16:00 dw-1-3、dw-1-4 空着的卡会在启动前杀作业;dw-1-2 已恢复。cs-1-3、dw-1-3 在 2026-10-03 下午曾把任务在 2 秒内 root 杀掉(健康检查),傍晚已恢复
 COMMON="--parsable --gres=gpu:4 --cpus-per-task=32 --mem=350G --time=${SEG_TIME:-23:30:00}"   # 运行中计费额度按「计费 x 申请时长」算,短任务用 SEG_TIME 缩短
 STUDENT=/home/kzhao2/OPD/model/Qwen3-1.7B; TP=""          # TP:0.6B 的任务名前缀,避免与 1.7B 重名
 if [ "$SIZE" = 0.6B ]; then
   STUDENT=/home/kzhao2/OPD/model/Qwen3-0.6B; TP=6
-  PARTS=("--partition=cs2,cs --qos=cs --exclude=cs-1-2,cs-1-3" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 0.6B 不报算力,哪里空就在哪里跑
+  PARTS=("--partition=cs2,cs --qos=cs --exclude=cs-1-2,cs-1-3,cs-1-4" "--partition=cs3 --qos=cs" "--partition=m13h --qos=gpu --exclude=m13h-1-1" "--partition=dw --qos=dw87 --exclude=dw-2-4,dw-1-4,dw-1-3")   # 0.6B 不报算力,哪里空就在哪里跑
   DPQ=$PWD/outputs/offline_data/trd_pt06b/trd_trajectories.parquet      # 0.6B 学生自己的改写数据
 fi
 
@@ -39,6 +39,29 @@ SPEC17=(
   "critclean opd/scripts/baselines/opd.sh           40 $DAPO criticopd_clean_pt17b 2 arg"
   "critend  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_end_pt17b 2 arg"
   "critgen  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_generic_pt17b 2 arg"
+  "critk1   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_k1_pt17b 2 arg"
+  "critk2   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_k2_pt17b 2 arg"
+  "critk3   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_k3_pt17b 2 arg"
+  "critb512 opd/scripts/baselines/opd.sh            40 $DAPO criticopd_b512_pt17b 2 arg"
+  "critb1024 opd/scripts/baselines/opd.sh           40 $DAPO criticopd_b1024_pt17b 2 arg"
+  "critb4096 opd/scripts/baselines/opd.sh           40 $DAPO criticopd_b4096_pt17b 2 arg"
+  "crittw   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_teacherrw_pt17b 2 arg"
+  "critans  opd/scripts/baselines/opd.sh            40 $DAPO criticopd_answer_pt17b 2 arg"
+  "opdrw    opd/scripts/baselines/opd.sh            80 $DAPO opdreward_1p7b 2 arg"
+  "opdcor   opd/scripts/baselines/opd.sh            80 $DAPO opdcorrect_1p7b 2 arg"
+  "r1       opd/scripts/baselines/opd.sh            80 $DAPO criticopd_R1_pt17b 2 arg"
+  "r2v2     opd/scripts/baselines/opd.sh            60 $DAPO criticopd_R2v2_pt17b 2 arg"
+  "r3v2     opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R3v2_pt17b 2 arg"
+  "r4       opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4_pt17b 2 arg"
+  "r4gt     opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4GT_pt17b 2 arg"
+  "r4gtkl   opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4GTKL_pt17b 2 arg"
+  "r4gtb    opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4GTB_pt17b 2 arg"
+  "r4tr     opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4TR_pt17b 2 arg"
+  "r4gtv    opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4GTV_pt17b 2 arg"
+  "r4gta    opd/scripts/baselines/opd.sh            40 $DAPO criticopd_R4GTA_pt17b 2 arg"
+  "opsdt    opd/scripts/baselines/opd.sh            80 $DAPO opsdt_pt17b 2 arg"
+  "cgrpo    opd/scripts/baselines/opd.sh           120 $DAPO cgrpo_pt17b 3 arg"
+  "drgrpo   opd/scripts/baselines/opd.sh            40 $DAPO drgrpo_pt17b 2 arg"
 )
 # CriticOPD 最终版:列出全部错误、在最后一个错误处断开(R4GTKL),批改输出上限 2048,
 # 截断时丢掉最后那条没写完的错误。其余开关与 criticopd/submit_arm.sh 的 R4GTKL 逐项一致。
@@ -57,6 +80,9 @@ SPEC06=(
   "fastopd  opd/scripts/baselines/fastopd/8192.sh   40 $DAPO fastopd8192_pt06b 2 arg"
   "skd      opd/scripts/baselines/skd.sh            40 $DAPO skd_pt06b         2 env"
   "critic   opd/scripts/baselines/opd.sh            80 $DAPO criticopd_final_pt06b 2 arg"
+  "critans  opd/scripts/baselines/opd.sh            80 $DAPO criticopd_answer_pt06b 2 arg"
+  "opsdt    opd/scripts/baselines/opd.sh            80 $DAPO opsdt_pt06b 2 arg"
+  "cgrpo    opd/scripts/baselines/opd.sh           120 $DAPO cgrpo_pt06b 3 arg"
 )
 #  0.6B 的 CriticOPD 没有先验峰值:训到 80(2026-10-05 起,原为 60),在 40、60、80 都评测(第 40 步由附加守护评测,见 eval_guard.sh 的 GUARD_NO_RESUBMIT)
 if [ "$SIZE" = 0.6B ]; then SPEC=("${SPEC06[@]}"); else SPEC=("${SPEC17[@]}"); fi
@@ -87,10 +113,46 @@ for spec in "${SPEC[@]}"; do
     # 机制消融(为什么有效):断在解答末尾(定位是否必要);通用反馈(批改内容是否必要)
     [ "$m" = critend ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_CUT=end"; extra="$extra $CRIT_ARGS"; }
     [ "$m" = critgen ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_FB_MODE=generic"; extra="$extra $CRIT_ARGS"; }
+    # 调参(超参敏感性,只跑 1.7B seed 42):批改用到的错误数 k(最终版为全部);批改输出上限(最终版 2048)
+    case $m in critk[0-9]) envs="$envs${CRIT_ENV/CRITIC_OPD_KERR=last/CRITIC_OPD_KERR=${m#critk}}"; extra="$extra $CRIT_ARGS";; esac
+    # 消融:批改泄露答案;基线:OPD 加结果奖励(每题 2 个 rollout、64 题/步,每步 rollout 数与 OPD 相同);基线:只在答对的 rollout 上做 OPD
+    [ "$m" = critans ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_FB_ANSWER=1"; extra="$extra $CRIT_ARGS"; }
+    [ "$m" = opdrw ] && envs="$envs,ROLLOUT_N=2,USE_TASK_REWARDS=True,TRAIN_BATCH_SIZE=64,PPO_MINI_BATCH_SIZE=64"
+    [ "$m" = opdcor ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_DROP_WRONG=1"; extra="$extra $CRIT_ARGS"; }
+    # 早期消融(主表消融表 (a)(c) 各行)补 seed:开关与 criticopd/submit_arm.sh 里对应的 arm 逐项一致
+    OLD_ENV=",ROLLOUT_N=1,AGENT_WORKERS=2,MAX_RESPONSE_LENGTH=16384,CRITIC_OPD_ENABLE=1,CRITIC_OPD_SPLICE=after,CRITIC_OPD_TRUNC=0,CRITIC_OPD_KEEP_CORRECT=0,CRITIC_OPD_ANNEAL=,CRITIC_OPD_REF_FILE=,CRITIC_OPD_KERR=,CRITIC_OPD_GIVE_GT=0"
+    GT0="$OLD_ENV,CRITIC_OPD_USE_FEEDBACK=1,CRITIC_OPD_LOSS=fb"         # R4:批改不给参考答案
+    GT1="${GT0/CRITIC_OPD_GIVE_GT=0/CRITIC_OPD_GIVE_GT=1}"                 # R4GT:批改给参考答案
+    case $m in
+      r1)     envs="$envs,ROLLOUT_N=2" ;;
+      r2v2)   envs="$envs$OLD_ENV,CRITIC_OPD_USE_FEEDBACK=0,CRITIC_OPD_LOSS=center"; extra="$extra $CRIT_ARGS" ;;
+      r3v2)   envs="$envs$OLD_ENV,CRITIC_OPD_USE_FEEDBACK=1,CRITIC_OPD_LOSS=center"; extra="$extra $CRIT_ARGS" ;;
+      r4)     envs="$envs$GT0"; extra="$extra $CRIT_ARGS" ;;
+      r4gt)   envs="$envs$GT1"; extra="$extra $CRIT_ARGS" ;;
+      r4gtkl) envs="$envs${GT1/CRITIC_OPD_KERR=,/CRITIC_OPD_KERR=last,}"; extra="$extra $CRIT_ARGS" ;;
+      r4gtb)  envs="$envs${GT1/CRITIC_OPD_SPLICE=after/CRITIC_OPD_SPLICE=before}"; extra="$extra $CRIT_ARGS" ;;
+      r4tr)   envs="$envs${GT0/CRITIC_OPD_TRUNC=0/CRITIC_OPD_TRUNC=1,CRITIC_OPD_TRUNC_MAX=512}"; extra="$extra $CRIT_ARGS" ;;
+      r4gtv)  envs="$envs${GT1/CRITIC_OPD_KEEP_CORRECT=0/CRITIC_OPD_KEEP_CORRECT=1}"; extra="$extra $CRIT_ARGS" ;;
+      r4gta)  envs="$envs${GT1/CRITIC_OPD_ANNEAL=,/CRITIC_OPD_ANNEAL=20:40:0,}"; extra="$extra $CRIT_ARGS" ;;
+    esac
+    # 基线 OPSD-T:外部 teacher 在题目后多看一行参考答案,对学生的整条 rollout 打分(不批改、不重写)
+    [ "$m" = opsdt ] && { envs="$envs,ROLLOUT_N=1,AGENT_WORKERS=2,MAX_RESPONSE_LENGTH=16384,CRITIC_OPD_OPSD=1,CRITIC_OPD_LOSS=fb"; extra="$extra $CRIT_ARGS"; }
+    # 基线 Critique-GRPO:每题 7 条初始回答加 1 个精炼槽位;批改与 CriticOPD 最终版相同,末尾附参考答案
+    # (官方脚本默认 simple_gt 给答案、论文主结果的 GPT-4o 批改也写出答案;2026-10-10 用户定:用带答案的官方设置);
+    # 只用结果奖励(蒸馏损失系数 0),损失按官方实现(不裁剪、精炼 token 用 p/(p+0.1)、无 KL、entropy 0.001)
+    CGRPO_ARGS="actor_rollout_ref.actor.policy_loss.loss_mode=critique_grpo actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-sum-norm actor_rollout_ref.actor.loss_scale_factor=16384 actor_rollout_ref.actor.entropy_coeff=0.001 distillation.distillation_loss.distillation_loss_coef=0.0"
+    _CE="${CRIT_ENV/ROLLOUT_N=1/ROLLOUT_N=8}"; _CE="${_CE/CRITIC_OPD_LOSS=fb/CRITIC_OPD_LOSS=clean}"
+    [ "$m" = cgrpo ] && { envs="$envs$_CE,CRITIC_OPD_FB_ANSWER=1,CRITIC_OPD_CGRPO=1,CRITIC_OPD_CGRPO_N_INIT=7,USE_TASK_REWARDS=True,ADV_ESTIMATOR=critique_grpo"; extra="$extra $CRIT_ARGS $CGRPO_ARGS"; }
+    # 诊断:Critique-GRPO 去掉精炼,只剩它的损失设置(Dr.GRPO、不裁剪、entropy 0.001),用来区分退化来自精炼还是损失设置
+    [ "$m" = drgrpo ] && { envs="$envs,ROLLOUT_N=8,USE_TASK_REWARDS=True,ADV_ESTIMATOR=critique_grpo"; extra="$extra $CGRPO_ARGS"; }
+    # 消融:重写由 teacher 来写(其余与最终版相同)
+    [ "$m" = crittw ] && { envs="$envs$CRIT_ENV,CRITIC_OPD_REWRITER=teacher"; extra="$extra $CRIT_ARGS"; }
+    case $m in critb[0-9]*) envs="$envs${CRIT_ENV/CRITIC_OPD_CRITIC_TOKENS=2048/CRITIC_OPD_CRITIC_TOKENS=${m#critb}},CRITIC_OPD_CRITIC_TOKENS_EXACT=1"; extra="$extra $CRIT_ARGS";; esac
     prev=""
     for seg in $(seq $((1 + ${SEG_BASE:-0})) $((nseg + ${SEG_BASE:-0}))); do   # SEG_BASE:续训用新段号,避开旧链留下的 .segN.lock
       dep=""; [ -n "$prev" ] && dep="--dependency=afterany:$prev"
       [ -z "$prev" ] && [ -n "$FIRST_DEP" ] && dep="--dependency=$FIRST_DEP"
+      [ -z "$prev" ] && [ -n "${BEGIN:-}" ] && dep="$dep --begin=$BEGIN"   # 守护重提交时退避,免得一波 root 杀把重试次数一次耗光
       ids=""
       for p in "${PARTS[@]}"; do
         pe=""; [[ $p == *cs3* ]] && pe=",EXTRA_MODULES=cuda/12.8.1"        # B200 节点要另载 CUDA 12.8
