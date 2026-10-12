@@ -1,0 +1,15 @@
+# Copy to configs/olmo.yaml and fill in every field marked FILL. Read "What to change for OLMo" in README.md first.
+student: FILL          # the OLMo student AFTER OPD, at the checkpoint selected for the main table (not the base model)
+teacher: FILL          # the teacher used in that OPD run
+judge: Qwen/Qwen3-8B   # keep: the judge must be the same as in the paper
+out_dir: outputs/olmo
+student_chat_kwargs: {}          # arguments to tokenizer.apply_chat_template; {} unless the template has switches
+teacher_chat_kwargs: {}
+judge_chat_kwargs: {enable_thinking: true}   # keep (Qwen3-8B judge)
+student_stop_token_ids: null     # null = eos ids of tokenizer + generation_config.json; check them with `inspect`
+teacher_stop_token_ids: null
+response_budget: FILL            # = the max response length used in the OLMo OPD training
+max_model_len: FILL              # >= prompt + response_budget + 2048, and <= the context length of the student and teacher
+critic_tokens: 2048              # keep
+critic_max_model_len: FILL       # context length of the teacher (critique prompt holds the full solution, plus 2048 tokens)
+judge_max_model_len: 40960       # keep

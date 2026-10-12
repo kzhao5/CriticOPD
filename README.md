@@ -29,6 +29,8 @@
 | `results_final/` | 论文用的结果表(主表、OOD、消融)、算力统计与图 |
 | `diag2/`、`results_final/section2*/` | 论文 Section 2 的诊断实验:代码与结果(见「十、Section 2 诊断实验」) |
 | `env/` | `pip_freeze.txt`、`relay-opd.conda.yml` |
+| `crossmodel_diag/` | 在新模型家族(OLMo)上重做论文图 3、图 4、图 5(a) 的诊断流程,配置驱动,附说明(见「十一、跨模型诊断」) |
+| `paper_figures/` | 论文当前版本全部图的 PDF |
 
 ## 一、主表的方法、启动方式与所选 checkpoint
 
@@ -189,3 +191,6 @@ torch 2.11.0(CUDA 13.0)、vLLM 0.21.0、transformers 5.15.0、ray 2.57.0、sympy
 
 **运行**:`bash diag2/pipeline.sh`(主批次全流程)→ `bash diag2/pipeline_ext.sh` 与 `pipeline_ext2.sh <closing 任务>`(扩充批次:其余错误轨迹)→ `bash diag2/pipeline_e10.sh <目录> <前缀>`(E9、E10)→ `python3 diag2/merge_out.py out out_b`(合并)→ `DIAG_OUT=<目录> python3 diag2/report.py`(数字与图)→ `python3 diag2/package.py <名字>`(打包)。各阶段是 `diag2/diag.py` 的子命令,含义见该文件开头的说明。
 
+## 十一、跨模型诊断(OLMo)
+
+`crossmodel_diag/` 是 `diag2/` 中生成论文图 3、图 4、图 5(a) 那部分流程的移植版:实验逻辑与提示词不变,模型路径和与模型有关的设置(对话模板参数、停止符、长度)改由配置文件给出,并用论文数据核对过作图数字。在 OLMo 上运行的步骤、需要修改和不能修改的地方、需要发回的内容,见 `crossmodel_diag/README.md`。
