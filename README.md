@@ -7,6 +7,7 @@ Kaixiang Zhao<sup>1</sup>, Tianrun Yu<sup>1</sup>, Shangzhe Li<sup>2</sup>, Yuxi
 <sup>1</sup>Brigham Young University &nbsp;&nbsp; <sup>2</sup>University of North Carolina at Chapel Hill
 </p>
 
+[![Project Page](https://img.shields.io/badge/Project-Page-2c6a44.svg)](https://kzhao5.github.io/CriticOPD-website/)
 [![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b.svg)](#-news)
 [![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.11-ee4c2c.svg)](https://pytorch.org/)
@@ -43,6 +44,7 @@ The critique serves as privileged information: every supervised token is written
 
 ## 📰 News
 
+- **[2026-10]** [Project page](https://kzhao5.github.io/CriticOPD-website/) online.
 - **[2026-10]** Code release: CriticOPD, the baselines of the paper, and the evaluation protocol.
 - **[2026-10]** The paper will appear on arXiv soon.
 
