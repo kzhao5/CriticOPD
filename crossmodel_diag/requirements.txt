@@ -1,8 +1,0 @@
-vllm>=0.8          # tested with the vLLM of our training environment
-transformers>=4.51
-torch
-pandas
-numpy
-matplotlib
-pyyaml
-sympy              # math grader

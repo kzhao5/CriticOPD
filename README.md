@@ -1,221 +1,232 @@
-# CriticOPD:代码、配置与结果(交接版)
+<div align="center">
+<br>
+<h2>Recovering Reliable Supervision via<br>Critique-Guided On-Policy Distillation</h2>
 
-本仓库是论文 Qwen3 主表实验**实际使用的那一版代码**,原样上传,没有事后整理。用途:在新的模型家族(Gemma 3)上用完全相同的训练和评测设置复现主表(全部 baseline + CriticOPD,多 seed)。跨模型只跑主表,不做消融和调参。
+<p>
+Kaixiang Zhao<sup>1</sup>, Tianrun Yu<sup>1</sup>, Shangzhe Li<sup>2</sup>, Yuxiao Yang<sup>2</sup>, Amanda Hughes<sup>1</sup>, Weitong Zhang<sup>2</sup>, Taylor W. Killian<sup>1</sup><br>
+<sup>1</sup>Brigham Young University &nbsp;&nbsp; <sup>2</sup>University of North Carolina at Chapel Hill
+</p>
 
-- 训练代码基于上游 [zju-real/Relay-OPD](https://github.com/zju-real/Relay-OPD) 的提交 `eab2145`(2026-07-29),其中 `relay-opd/` 是改过的 verl。上游许可证见 `relay-opd/LICENSE`(Apache-2.0)。
-- 我们对上游的全部改动:`docs/upstream_diff.patch`(改了 21 个文件,2026-10-12 重新生成),另新增 3 个文件:`relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(CriticOPD 主体)、`relay-opd/verl/utils/semantic_eos.py`、`relay-opd/opd/patches/tb_steer_traj.py`。
-- 所有脚本里的路径都是我们集群上的绝对路径,需要按「七、需要替换的路径」改成你的。
+[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b.svg)](#-news)
+[![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.11-ee4c2c.svg)](https://pytorch.org/)
+[![Framework](https://img.shields.io/badge/Built%20on-verl%20%7C%20Relay--OPD-6f42c1.svg)](https://github.com/zju-real/Relay-OPD)
+[![Rollout](https://img.shields.io/badge/Rollout-vLLM%200.21-2ea44f.svg)](https://github.com/vllm-project/vllm)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
-> **CriticOPD 最终版(2026-10-10 更新,跨模型请用这一版):** 在 10-04 版(批改老师列出**全部**错误,至多 5 个;学生在**最后一个**错误处断开,看着依次列出的全部反馈续写)的基础上,
-> 反馈末尾附上正确答案 `The correct final answer is X.`,并且不再去掉反馈里写出答案的错误(`CRITIC_OPD_FB_ANSWER=1`)。
-> 启动:`ONLY=critans bash multiseed/submit.sh`(多 seed,训完自动评测);环境变量 = `multiseed/submit.sh` 里的 `CRIT_ENV` 加 `CRITIC_OPD_FB_ANSWER=1`。
-> 10-04 版的其余设置不变:多错误提示词 `CRITIC_SYS_MULTI`(`CRITIC_OPD_KERR=last`);批改输出上限 2048(`CRITIC_OPD_CRITIC_TOKENS=2048`),仍被截断时丢掉没写完的最后一条错误。
-> 我们的结果(三个 seed 的六项平均):Qwen3-1.7B @40 为 54.65(`criticopd_answer_pt17b`)。Qwen3-0.6B 上这一版 @40 的三个 seed 为 36.50 / 36.08 / 36.40,
-> 低于不给答案的 10-04 版(`criticopd_final_pt06b`,38.46)。
+</div>
 
-## 目录
+<p align="center"><img src="assets/overview.png" width="100%"></p>
+<p align="center"><em>Overview of CriticOPD (Figure 2): (a) the student writes a rollout; (b) if it is wrong or truncated, the teacher critiques it with the reference answer as a guide; (c) the student keeps its prefix up to the last critiqued error and rewrites the rest with the critique in its context; (d) the teacher scores the rewrite with the critique in its context, and the student learns from the sequence without the critique. Correct rollouts are trained with standard OPD.</em></p>
 
-| 位置 | 内容 |
-|---|---|
-| `relay-opd/` | 训练与评测代码(改过的 verl + `opd/` 下的方法脚本、判分、评测) |
-| `criticopd/` | CriticOPD 的提交脚本(`submit_arm.sh`)、统一评测提交(`submit_unified.sh`)、分片汇总(`agg_step.sh`、`agg_shards.py`)、离线分析脚本及其报告 |
-| `paper_baselines/` | SFT / KD / TRD / GRPO / SKD 的分段训练启动(`train_segment.sl`)与离线造数据(`gen_data.sl`) |
-| `multiseed/` | 多 seed 提交脚本(`submit.sh`)、评测守护(`eval_guard.sh`,自动评测、核对题数、补交失败分片) |
-| `run_method.sl`、`run_method_freegpu.sl`、`lucid_v2/run_locked.sl` | Slurm 启动器(`lucid_v2/` 只是历史目录名,里面只有这个通用启动器) |
-| `eval_shard.sl`、`eval_ood.sl`、`submit_ood.sh`、`eval_mc.sl`、`score_code.sh` | 数学评测分片、OOD 评测(选择题与代码) |
-| `configs/<run>/` | 每次训练实际执行的命令(`launch_command.txt`,含全部 Hydra 覆盖)、训练器打印的完整配置(`resolved_config.txt`)、每段 Slurm 任务的节点/GPU/耗时/提交命令(`slurm_jobs.tsv`) |
-| `configs/hyperparameters.md` | 各运行关键超参数对照表(从启动命令自动解析) |
-| `data/` | 训练集 `dapo-math-17k.parquet`、全部评测集 `bench/`、离线造数据的参数摘要 |
-| `reference/` | 用来核对复现的参照:每步训练指标 `metrics/<run>.csv`、原始训练日志 `training_logs/`、69 个 checkpoint 的评测汇总 `eval_summaries/`、CriticOPD@40 的逐条生成 `eval_outputs/`、40 条 critic 输入输出样例 `critic_samples.jsonl` |
-| `results_final/` | 论文用的结果表(主表、OOD、消融)、算力统计与图 |
-| `diag2/`、`results_final/section2*/` | 论文 Section 2 的诊断实验:代码与结果(见「十、Section 2 诊断实验」) |
-| `env/` | `pip_freeze.txt`、`relay-opd.conda.yml` |
-| `crossmodel_diag/` | 在新模型家族(OLMo)上重做论文图 3、图 4、图 5(a) 的诊断流程,配置驱动,附说明(见「十一、跨模型诊断」) |
-| `paper_figures/` | 论文当前版本全部图的 PDF |
+## 🌌 Introduction
 
-## 一、主表的方法、启动方式与所选 checkpoint
+On-policy distillation (OPD) trains a student model on its own rollouts with token-level supervision from a teacher. This supervision assumes that the teacher can reach a correct answer from any prefix that the student writes. We call this property the **recoverability** of the teacher.
 
-学生 Qwen3-1.7B / Qwen3-0.6B(后训练版,非思考模板),teacher Qwen3-4B-Instruct-2507。所有方法从同一个学生起点训练,batch 128 题,学习率 1e-6 恒定(无 warmup),回答上限 16384(FastOPD 为 8192),采样温度 1.0、top-p 1.0,`data.seed=42`,每 20 步存一次。逐项数值见 `configs/hyperparameters.md`,原始命令见 `configs/<run>/launch_command.txt`。
+**Where the supervision fails.** On incorrect rollouts, recoverability declines as the prefix grows: the teacher increasingly continues the student's errors and ends with the student's wrong answer. Yet when it is asked to critique the same prefixes, the teacher still recognizes most of the errors, at every level of recoverability.
 
-| 方法 | 训练入口(`METHOD_SCRIPT`) | 损失 | 1.7B 运行 / 所选步 | 0.6B 运行 / 所选步 |
-|---|---|---|---|---|
-| SFT | `opd/scripts/baselines/sft.sh` | 交叉熵(teacher 离线解答) | `sft_pt17b` @40 | 合作者提供 @139 |
-| KD(SeqKD) | `opd/scripts/baselines/seqkd.sh` | top-128 前向 KL(teacher 离线解答) | `seqkd_pt17b` @139 | 合作者提供 @139 |
-| GRPO | `opd/scripts/baselines/grpo.sh` | GRPO,每题 8 条,无 KL | `grpo_pt17b` @120 | `grpo_pt06b` @80 |
-| Critique-GRPO | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_CGRPO=1`(见「二之二」) | 每题 7 条初始回答 + 1 条批改后的精炼;Dr.GRPO 优势,无裁剪比率,精炼 token 用 p/(p+0.1) 塑形;无 teacher 蒸馏 | `cgrpo_pt17b_seed{42,43,44}` @40 | `cgrpo_pt06b_seed{42,43,44}` @40 |
-| OPD | `opd/scripts/baselines/opd.sh` | k1 逆 KL 估计 + 策略梯度 | `opd_1p7b` @80 | `opd_pt06b` @40 |
-| OPSD-T | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_OPSD=1`(见「二之二」) | 同 OPD,teacher 打分时 user 消息末尾多一行参考答案 | `opsdt_pt17b_seed{42,43,44}` @60 | `opsdt_pt06b_seed{42,43,44}` @80 |
-| TRD | `opd/scripts/baselines/trd.sh` | top-128 前向 KL(teacher 改写学生解答) | `trd_pt17b` @40 | 合作者提供 @139 |
-| FastOPD | `opd/scripts/baselines/fastopd/8192.sh` | 同 OPD,回答上限 8192 | `fastopd8192_1p7b` @60 | `fastopd8192_pt06b` @40 |
-| SKD | `opd/scripts/baselines/skd.sh` | 学生起草、teacher top-5 接受,top-128 前向 KL | `skd_pt17b` @120 | `skd_pt06b` @40 |
-| RelayOPD | `opd/scripts/relay_opd/train.sh` | `relay_opd` | `relay_1p7b` @40 | `relay_pt06b` @60 |
-| **CriticOPD** | `opd/scripts/baselines/opd.sh` + `CRITIC_OPD_*` 开关(见二),最终版另加 `CRITIC_OPD_FB_ANSWER=1` | k1 + 策略梯度,修复段由带反馈的 teacher 打分(L_fb) | 最终版 `criticopd_answer_pt17b_seed{42,43,44}` @40 | `criticopd_answer_pt06b_seed{42,43,44}`,训到 80,评测 40、60、80 |
+<p align="center"><img src="assets/diagnosis.png" width="62%"></p>
+<p align="center"><em>Figure 4: (a) how the continuations of the teacher end on incorrect rollouts of the student; (b) the fraction of errors listed by the teacher that are real stays flat, while its success rate from the same prefixes spans the whole range.</em></p>
 
-**所选步数**:每个方法在训练中评测过的 checkpoint 里,取数学前四项(AIME24、AIME25、AMC23、MATH500)平均最高的一个。所有方法都是恒定学习率,新 seed 只需训到这一步即可,与训到更远再回看完全等价。
+**How CriticOPD restores it.** CriticOPD turns error recognition into supervision. The teacher critiques an incorrect rollout, and the student rewrites its solution from the last error with the critique in its context. The teacher then scores the rewrite with the critique $c$ in its context, while the student learns from the sequence without it:
 
-**怎么启动**(我们集群上的原始用法):
+$$A_t^{\mathrm{fb}} = \log \pi_T(\tilde{y}_t \mid \tilde{h}_t, c) - \log \pi_\theta(\tilde{y}_t \mid \tilde{h}_t).$$
 
-```bash
-# CriticOPD(1.7B,4 张卡:actor 2 + teacher 2,训到第 40 步)
-PART=cs CHUNK_END=40 TEST_FREQ=-1 ARM=R4GT bash criticopd/submit_arm.sh
-#   调用链:submit_arm.sh -> lucid_v2/run_locked.sl -> run_method_freegpu.sl -> relay-opd/opd/scripts/baselines/opd.sh
+The critique serves as privileged information: every supervised token is written by the student, and the student needs no feedback at inference.
 
-# OPD / FastOPD / RelayOPD(seed 42 的 1.7B 用的是 8 卡 run_method.sl;0.6B 与多 seed 用 4 卡 run_method_freegpu.sl)
-sbatch --gres=gpu:4 --export=ALL,METHOD_SCRIPT=opd/scripts/baselines/opd.sh,OUTPUT_DIR=...,EXP_ID=...,\
-ACTOR_GPUS_PER_NODE=2,TEACHER_GPUS_PER_NODE=2,SAVE_FREQ=20,TEST_FREQ=-1,VAL_BEFORE_TRAIN=False,\
-EXTRA_ARGS="trainer.resume_mode=auto trainer.total_training_steps=80" run_method_freegpu.sl
+<p align="center">
+<img src="assets/recoverability.png" width="48%">
+&nbsp;
+<img src="assets/mechanism.png" width="48%">
+</p>
+<p align="center"><em>Left (Figure 6): recoverability of the teacher and the student on original rollouts (dashed) and critique-guided rewrites (solid). Right (Figure 8): (a) with the critique in its context, the teacher assigns a large advantage to a continuation that corrects the error; (b) the trained student recovers more often from prefixes of incorrect rollouts.</em></p>
 
-# 全部 baseline 的多 seed(seed 43、44;seed 42 为已有结果),训练完自动评测并核对
-bash multiseed/submit.sh               # 1.7B
-SIZE=0.6B bash multiseed/submit.sh     # 0.6B
-```
+## 📰 News
 
-`multiseed/submit.sh` 里的 `SPEC17` / `SPEC06` 就是每个方法的脚本、所选步数、训练数据的完整对照,建议直接以它为模板。几个容易漏的环境变量:GRPO 读 `N_GPUS`(默认 8,我们是 4);SFT 读 `NUM_GPUS`;其余读 `ACTOR_GPUS_PER_NODE` / `TEACHER_GPUS_PER_NODE`;随机种子:`SEED`(写入 `data.seed`,默认 42)、`SFT_DATA_SEED`(SFT 的数据打乱,默认 0)。
+- **[2026-10]** Code release: CriticOPD, the baselines of the paper, and the evaluation protocol.
+- **[2026-10]** The paper will appear on arXiv soon.
 
-## 二、CriticOPD 的实现位置
+## 📊 Results
 
-全部在 `relay-opd/verl/experimental/agent_loop/critic_opd_agent_loop.py`(行号以本仓库为准),由环境变量开关控制。最终版对应 `multiseed/submit.sh` 里的 `critans`(10-04 版是 `critic`,即下面的开关去掉 `CRITIC_OPD_FB_ANSWER=1`):
+Qwen3-1.7B student (non-thinking mode) distilled from Qwen3-4B-Instruct-2507 on DAPO-Math-17k. Accuracy (%) with a budget of 32,768 tokens, averaged over 32 samples per problem on AIME 2024, AIME 2025, and AMC 2023 and over 8 samples on MATH500, OlympiadBench, and Minerva Math; mean over three seeds at the selected step. Table 1 of the paper adds a Qwen3-0.6B student and all ten baselines.
 
-```
-CRITIC_OPD_ENABLE=1 CRITIC_OPD_USE_FEEDBACK=1 CRITIC_OPD_SPLICE=after CRITIC_OPD_LOSS=fb CRITIC_OPD_GIVE_GT=1
-CRITIC_OPD_KERR=last CRITIC_OPD_CRITIC_TOKENS=2048 CRITIC_OPD_FB_ANSWER=1
-CRITIC_OPD_TRUNC=0 CRITIC_OPD_KEEP_CORRECT=0 CRITIC_OPD_ANNEAL= CRITIC_OPD_REF_FILE=   ROLLOUT_N=1
-并在 Hydra 里设 actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent
-```
+| Method | Step | AIME24 | AIME25 | AMC23 | MATH500 | Olympiad | Minerva | Avg |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| OPD | 80 | 35.10 | 22.78 | 62.94 | 86.26 | 56.65 | 36.78 | 50.08 |
+| OPSD-T | 60 | 37.08 | 23.51 | 63.64 | 86.85 | 57.47 | **37.53** | 51.01 |
+| FastOPD | 60 | 40.97 | 26.25 | 66.08 | 87.28 | 58.01 | 36.73 | 52.55 |
+| RelayOPD | 40 | 40.10 | 29.97 | 67.32 | 88.10 | 59.07 | 37.50 | 53.68 |
+| **CriticOPD** | 40 | **41.11** | **30.14** | **69.88** | **88.87** | **60.45** | 37.44 | **54.65** |
 
-| 环节 | 位置 |
-|---|---|
-| 哪些 rollout 送去 critic | `run()`(第 623 行)第 902–908 行:写完的用标准答案判分,答错才送;被截断(写满 16384)的在 `GIVE_GT=1` 时也送,critic 认为路线没问题会回 `NONE` |
-| 解答切段 | `segment()`(按空行切段) |
-| critic 提示词 | `_MULTI_RULES` / `CRITIC_SYS_MULTI` / `CRITIC_SYS_MULTI_CAPPED`(第 204–235 行);消息在第 958 行(题目 + 标准答案 + 编号后的各段) |
-| critic 输出上限与截断 | 第 976 行:上限 `max(1024, CRITIC_OPD_CRITIC_TOKENS)` = 2048;撞到上限时第 983 行 `drop_incomplete_tail()`(第 267 行)去掉最后那块没写完的错误 |
-| 输出解析(ERROR / SEGMENT / QUOTE / FEEDBACK / NONE) | `parse_critic_multi()` 第 243 行:按 `SEGMENT:` 分块,每块按引文在原文中定位,定位不到才退回段号;去重、按段号排序,至多 5 个;`NONE` 返回空 |
-| 泄露答案的错误 | 第 990–991 行:`CRITIC_OPD_FB_ANSWER=1`(最终版)时**不**过滤;10-04 版用 `drop_leaky()`(第 294 行)去掉反馈里写出标准答案(独立成词)而学生原文里没有的条目 |
-| 选断点、拼反馈 | 第 995 行 `kerr_select(errs, "last")` 取全部错误,断点为最后一个;`kerr_feedback()`(第 300 行)把各条反馈编号拼成一段;最终版在第 1014 行起于末尾附上正确答案 |
-| 保留前缀、插入反馈 | 第 1019–1023 行:保留到最后一个错误所在段(含该段),按 token 对齐截断;在前缀后接 `FEEDBACK_TMPL`(第 145 行)让学生续写,续写预算 = 16384 − 前缀长度 |
-| 训练序列去掉反馈 | 第 1054–1059 行:训练序列 = 保留前缀(mask 0)+ 学生续写(mask 1),反馈文字不进序列,只对续写算损失 |
-| teacher 带反馈打分(L_fb) | 第 1093 行把「题目 + 前缀 + 反馈」交出;`relay-opd/verl/experimental/agent_loop/agent_loop.py` 第 1033 行起用它让 teacher 重新给续写 token 打分,覆盖训练序列里续写那几行的 teacher logprob |
-| 训练指标 | `relay-opd/verl/trainer/ppo/ray_trainer.py` 第 2137 行起(`critic_opd/repair_seq_frac`、`repair_tok_frac`);agent loop 的计数里 `kerr_k*`(实际用到几个错误)、`kerr_leak_drop`、`kerr_trunc_drop` |
+CriticOPD reaches its selected step after 40 steps and uses 17.2 A100 GPU-hours, 0.42 times the training compute of OPD at step 80.
 
-critic 就是 teacher 本身(Qwen3-4B-Instruct-2507),贪心解码(温度 0)。只找第一个错误的旧版(R4GT)用 `CRITIC_SYS_GT` 和 `parse_critic()`,输出上限 512。其余开关(`REF_FILE`、`TRUNC`、`KEEP_CORRECT`、`ANNEAL` 等)是消融,默认关闭。
+<details>
+<summary><b>Where the supervision of each method falls (Figure 1)</b></summary>
+<p align="center"><img src="assets/teaser.png" width="55%"></p>
+<p align="center"><em>Truncation removes the supervision after the error, and takeover methods let the teacher write tokens into the trajectory. CriticOPD keeps the student's prefix and supervises a rewrite that the student writes after the critique.</em></p>
+</details>
 
-## 二之二、新增的两个 baseline:OPSD-T 与 Critique-GRPO(2026-10-12)
+## ⚙️ Installation
 
-两者都复用 CriticOPD 的 agent loop(`critic_opd_agent_loop.py`),由环境变量开关;完整的环境变量与 Hydra 参数见 `multiseed/submit.sh` 里的 `opsdt` 与 `cgrpo` 两行(第 139–145 行)。
-
-**OPSD-T**(OPSD 换成外部 teacher):学生只看题目采样一条回答;teacher 打分时 user 消息末尾多一行 `[Reference answer: <答案>]`,整条回答都按这个 prompt 打分。实现在 `_run_opsd()`(第 636 行),复用 L_fb 的打分通道(`critic_fb_n_kept = 0`,`critic_fb_n_repair` = 整条回答)。
-开关:`ROLLOUT_N=1 AGENT_WORKERS=2 MAX_RESPONSE_LENGTH=16384 CRITIC_OPD_OPSD=1 CRITIC_OPD_LOSS=fb`,外加 `actor_rollout_ref.rollout.agent.default_agent_loop=critic_opd_agent`。训到 80 步,在 20、40、60、80 评测。
-
-**Critique-GRPO**(按官方实现,批改给出参考答案):每题 7 条初始回答;7 条全错时,teacher 批改其中一条(提示词与 CriticOPD 相同,反馈末尾附正确答案,`CRITIC_OPD_FB_ANSWER=1`),学生在新的一轮对话里按官方精炼提示词(`CGRPO_REFINE_SYS` / `CGRPO_REFINE_USER`,第 150 行起)重答,作为第 8 条;否则第 8 条是空位(mask 0,不计入组均值)。实现在 `_run_cgrpo()`(第 738 行)与 `_cg_entry()`(第 686 行)。
-优势为 Dr.GRPO(`relay-opd/verl/trainer/ppo/core_algos.py` 第 334 行,`ADV_ESTIMATOR=critique_grpo`);损失为 `compute_policy_loss_critique_grpo()`(同文件第 1402 行):初始回答用无裁剪的比率,精炼 token 用 p/(p+0.1) 塑形;`relay-opd/verl/workers/utils/losses.py` 第 105 行按 `loss_mode == "critique_grpo"` 分支。
-其余参数:`seq-mean-token-sum-norm`、`loss_scale_factor=16384`、`entropy_coeff=0.001`、`distillation_loss_coef=0`(不做 teacher 蒸馏);开关 `CRITIC_OPD_CGRPO=1 CRITIC_OPD_CGRPO_N_INIT=7 USE_TASK_REWARDS=True`。训到 120 步,在 40、80、120 评测。
-
-**启动**:`bash multiseed/submit_new_baselines.sh` 一次提交两个方法 × 两个学生 × 三个 seed,训练与评测全自动(seed 42 评测全部候选步,按前四项均值选步;seed 43/44 只评所选的一步)。只跑一部分时用 `METHODS="opsdt" SIZES="1.7B"` 这类环境变量。
-
-**我们的结果**(三个 seed 的六项平均,统一协议):
-
-| | Qwen3-1.7B | Qwen3-0.6B |
-|---|---|---|
-| OPSD-T | 51.01(@60) | 36.62(@80) |
-| Critique-GRPO | 31.85(@40) | 14.23(@40) |
-
-Critique-GRPO 在两个学生上都明显低于其他方法,在 0.6B 上训练崩溃;我们按官方设置跑,没有为它调参。
-
-## 三、数据
-
-- 训练集:`data/dapo-math-17k.parquet`(17917 题;1 个 epoch = 139 步)。提示词就在 `prompt` 列里:`Solve the following math problem step by step. The last line of your response should be of the form Answer: $Answer ... Remember to put your answer on its own line after "Answer:".`,标准答案在 `reward_model.ground_truth`。
-- SFT 与 KD 的数据:teacher 对全部 17917 题各生成 1 条解答,温度 1.0、top-p 1.0、上限 16384,用学生的对话模板(非思考)。启动:`MODE=teacher bash paper_baselines/gen_data.sl` → `relay-opd/opd/data/generate_teacher_trajectories.py`。参数摘要见 `data/offline_data_summaries/teacher_traj_pt17b/`(平均回答 4219 token)。Qwen3-0.6B 与 1.7B 的分词器和模板完全相同,0.6B 直接复用同一份。
-- TRD 的数据:学生先做(平均 1415 token),teacher 看着学生的解答改写(平均 3173 token)。`MODE=trd bash paper_baselines/gen_data.sl` → `generate_trd_trajectories.py`,与学生相关,换学生要重新生成。
-- GRPO 的奖励与所有判分:`relay-opd/opd/reward/math_reward.py` 的 `compute_score`,依次尝试 `\boxed{}` 抽取、`The answer is:` 抽取、math_verify 比较,答对 1 否则 0。CriticOPD 判断「写完是否答对」用的也是它(放在子进程里跑,避免 sympy 卡死)。
-
-## 四、评测
-
-数学(主表):
+CriticOPD builds on [Relay-OPD](https://github.com/zju-real/Relay-OPD), which is built on [verl](https://github.com/volcengine/verl). This repository holds only the files that CriticOPD adds or changes; `setup.sh` copies them onto Relay-OPD at a pinned commit.
 
 ```bash
-RUN=<checkpoint 目录名> STEP=<步数> TAG=<任务名前缀> bash criticopd/submit_unified.sh   # 按题目分片提交
-bash criticopd/agg_step.sh <RUN> <STEP>                                               # 分片汇总
+git clone https://github.com/kzhao5/CriticOPD.git
+cd CriticOPD
+bash setup.sh                         # -> ./Relay-OPD (base commit eab2145) with CriticOPD added
+
+conda create -n criticopd python==3.12 -y
+conda activate criticopd
+cd Relay-OPD
+pip install -c environment/vllm-constraints.txt vllm==0.21.0
+cd relay-opd
+pip install -e .
+pip install -r requirements-relay-opd.txt
+python ../environment/verify_install.py
 ```
 
-| benchmark | 文件 | 题数 | 每题采样 |
-|---|---|---|---|
-| AIME 2024 | `data/bench/aime-24.parquet` | 30 | 32 |
-| AIME 2025 | `data/bench/aime-2025.parquet` | 30 | 32 |
-| AMC 2023 | `data/bench/amc23.parquet` | 83 | 32 |
-| MATH500 | `data/bench/math500.parquet` | 500 | 8 |
-| OlympiadBench | `data/bench/olympiadBench.parquet` | 675 | 8 |
-| Minerva Math | `data/bench/minerva.parquet` | 272 | 8 |
-
-采样:温度 1.0、top-p 1.0、生成上限 32768(`max_model_len` 34817)、seed 42,非思考模板;指标为 avg@k。评测代码 `relay-opd/opd/eval/math_benchmarks.py`,由 `relay-opd/opd/scripts/evaluation/math.sh` 调用,判分同上。分片合并后的 jsonl 里 `problem_idx` 是分片内的局部编号,做逐题配对时用 `problem_idx × 分片数 + 分片号`。`multiseed/eval_guard.sh` 会自动完成评测、汇总、核对、补交失败分片:每个 benchmark 的所有分片都在才合并(缺一片 `agg_shards.py` 拒绝合并),合并后核对题数、每题采样数,并数一遍逐条记录必须正好是「题数 × 采样数」;缺片只补交缺的那几片(第二轮起推迟 10 分钟,最多 20 轮)。评测分片会同时向多组分区排队,`eval_shard.sl` 里有锁,先开始的副本取消其余,同一分片不会重复跑。训练链见 `multiseed/submit.sh`;训完后 `train_segment.sl` 会取消多备的分段,`multiseed/reap.sh` 可手动清理。
-
-OOD(`submit_ood.sh` → `eval_ood.sl`;选择题 `eval_mc.sl`,代码 `score_code.sh`):每题 4 次采样,温度 1.0;选择题上限 8192,按 `\boxed{字母}` 判分;代码上限 4096,EvalPlus pass@1(base 与 plus 测试,每次运行前清空 EvalPlus 结果缓存)。数据:`mmlu_mini`(MMLU 按学科分层抽 2000/14042)、`mmlu_pro_2k`(MMLU-Pro 按类别分层抽 2000/12032)、`arc_c`(1172)、`obqa`(500)、`humanevalplus`(164)、`mbpp`(MBPP+,378)。完整协议写在 `results_final/ood_table.json` 的 `protocol` 字段里。
-
-## 五、环境
-
-torch 2.11.0(CUDA 13.0)、vLLM 0.21.0、transformers 5.15.0、ray 2.57.0、sympy 1.14.0、numpy 1.26.4;没有安装 flash-attn。完整列表:`env/pip_freeze.txt`、`env/relay-opd.conda.yml`;安装脚本 `setup_env.sh`。
-
-我们集群上必需的设置(都已写在启动器里):`OPENSSL_CONF=/dev/null`(FIPS);计算节点没有 nvcc,所以 `VLLM_USE_FLASHINFER_SAMPLER=0`;H100/H200/B200(sm90 及以上)上自带的 NCCL 2.28.9 会段错误,`run_method_freegpu.sl` 会预加载 NCCL 2.29.7(`pip install --target criticopd/nccl_alt/2.29.7 nvidia-nccl-cu12==2.29.7`,二进制太大没有上传);B200 节点需另载 CUDA 12.8 模块。
-
-## 六、核对复现用的参照
-
-- `results_final/main_table_math.json`、`ood_table.json`、`criticopd_ablations.json`:论文里的数字。注意主表已改为统一协议(上表),以 `reference/eval_summaries/<run>_u32/step_<N>/` 为准,例如 CriticOPD@40:AIME24 38.23、AIME25 26.35、AMC23 66.68、MATH500 87.98、OlympiadBench 57.94、Minerva 36.90,六项平均 52.35;OPD@80 为 50.18。
-- `reference/metrics/<run>.csv`:每一步的全部训练指标(回答长度、loss、teacher/学生耗时、CriticOPD 的修复比例等),相当于 wandb 导出。
-- `reference/eval_outputs/criticopd_R4GT_pt17b_step40/`:CriticOPD@40 六个 benchmark 的逐条生成文本。
-- `reference/critic_samples.jsonl`:40 条 critic 输入(题目、标准答案、学生解答、编号后的用户消息)、critic 原始输出、解析结果,以及每条对应的两次修复和对错。
-- 算力:`results_final/step_time.csv` 与 `fig_step_time.*`(4×A100 上每一步的 GPU 时间),`configs/<run>/slurm_jobs.tsv` 有每段任务的实际耗时和 GPU 型号。
-
-## 七、需要替换的路径
-
-| 我们的路径 | 含义 |
+| Package | Version used in the paper |
 |---|---|
-| `/home/kzhao2/Relay-OPD` | 本仓库根目录 |
-| `/home/kzhao2/OPD/model/Qwen3-1.7B`、`Qwen3-0.6B`、`Qwen3-4B-Instruct-2507` | 学生与 teacher 模型 |
-| `/home/kzhao2/OPD/datasets/dapo-math-17k.parquet` | 训练集(本仓库 `data/`) |
-| `/home/kzhao2/Relay-OPD/outputs/data/bench` | 评测集(本仓库 `data/bench/`) |
-| `/home/kzhao2/Relay-OPD/outputs/{checkpoints,eval_out,offline_data}` | 输出目录 |
-| `/home/kzhao2/.conda/envs/relay-opd` | conda 环境 |
-| `--account=als44`、分区 `cs`/`cs2`/`cs3`/`dw`/`m13h`、QOS `cs`/`dw87`/`gpu` | Slurm 设置 |
+| Python | 3.12 |
+| PyTorch | 2.11 (CUDA 13.0) |
+| vLLM | 0.21.0 |
+| Transformers | 5.15 |
+| Ray | 2.57 |
+| Math-Verify | 0.9.0 |
 
-## 八、换成 Gemma 3 时要改的地方
+A run on Qwen3-1.7B uses one node with four NVIDIA A100-80GB GPUs: two for the student and two for the teacher.
 
-- **停止符**:Qwen 的 `151643` / `151645` 写死在 `paper_baselines/gen_data.sl`(`GEN_STOP_TOKEN_IDS`)、`relay-opd/opd/data/generate_teacher_trajectories.py`、`generate_trd_trajectories.py`、`submit_ood.sh`、`criticopd/` 的离线分析脚本里。训练时 rollout 用的是模型自带的 EOS,需要确认 Gemma 的 `generation_config.json` 包含 `<end_of_turn>`(id 106)。
-- **critic 的 system 角色**:`critic_opd_agent_loop.py` 构造 critic 消息时用 `{"role": "system"}` 传提示词(最终版在第 668 行)。Gemma 3 的模板会把 system 合并进第一条 user 消息,critic 实际看到的输入格式会变,需要先确认。
-- **思考模式开关**:`enable_thinking` / `disable_thinking` 是 Qwen 模板专用参数,出现在 `opd/eval/math_benchmarks.py`、`opd/scripts/evaluation/math.sh`、各训练脚本和造数据脚本里,换模型时去掉或忽略。
-- Gemma 3 的 4B 以上是多模态模型类,训练和 vLLM 里需要按纯文本加载。
+## 🚀 Quick Start
 
-## 九、我们踩过的坑
+All commands run from `Relay-OPD/relay-opd`. The training prompts and the six evaluation benchmarks are in [`data/`](data).
 
-- verl 的数据顺序取决于 `data.dataloader_num_workers`:同一个 seed,8 个进程与单进程的顺序不同(都是确定的)。
-- 判分要放进子进程:sympy 遇到 `\boxed{10^{10^9}}` 这类答案会占住 GIL,线程超时也拦不住。
-- 我们集群上有节点会在作业启动 2 秒内由 root 杀掉作业(健康检查),`multiseed/eval_guard.sh` 会自动重交;这是集群问题,与代码无关。
+```bash
+export STUDENT_MODEL=Qwen/Qwen3-1.7B
+export TEACHER_MODEL=Qwen/Qwen3-4B-Instruct-2507
+export TRAIN_DATA=$PWD/../../data/dapo-math-17k.parquet
+export BENCH=$PWD/../../data/bench
 
-## 十、Section 2 诊断实验
+# train CriticOPD (40 steps, checkpoints every 20 steps)
+SEED=42 OUTPUT_DIR=$PWD/runs/criticopd_seed42 bash opd/scripts/criticopd/train.sh
 
-代码在 `diag2/`,结果在 `results_final/section2_main/`(主批次)和 `results_final/section2/`(主批次 + 扩充批次合并后的最终版)。每个结果目录里有 `SUMMARY.md`(全部数字的中文汇总)、`figs/`(图 2、图 3、图 3 备选、附录图)、`numbers.json`、`data/`(各状态的成功率、批改与判定原文、关闭点、方法断点;不含续写全文)和 `code/`(生成该结果的代码快照)。结果出来后会自动更新到这里。
+# evaluate the checkpoint at step 40
+MODEL=runs/criticopd_seed42/global_step_40/actor/huggingface DATA_DIR=$BENCH \
+OUT_ROOT=$PWD/eval RUN_NAME=criticopd_seed42 STEP=40 bash opd/scripts/criticopd/eval.sh
+```
 
-**设置**:与主实验相同。学生是主表 OPD 的 checkpoint(Qwen3-1.7B 非思考,`opd_1p7b` 第 80 步),teacher 是 Qwen3-4B-Instruct-2507,题目来自 DAPO-Math-17k。续写用温度 1.0,长度上限 16384,判分与训练相同。批改用最终方法的多错误提示词,但不给参考答案(给参考答案的版本只用于附录对照),截断与泄露处理与训练一致。逐条判断错误是否属实用 Qwen3-8B 思考模式(给参考答案)。
+`train.sh` reproduces the final configuration of the paper on Qwen3-1.7B. Its behavior is set by environment variables:
 
-**要回答的三个问题**
-1. 学生的错误轨迹上是否存在崩溃区间:从这些状态出发,teacher 和学生续写的成功率 $V^T$、$V^S$ 都很低,模仿 teacher 已没有教学意义。
-2. 在崩溃区间里,teacher 虽然续写不对,是否仍能指出学生的错误(保留批改能力)。
-3. 崩溃区间与「从第一个错误开始的区间」是什么关系:重合、包含还是错位。
-
-**实验**
-| 编号 | 内容 | 对应问题 |
+| Variable | Default | Meaning |
 |---|---|---|
-| E1 | 150 条正确、150 条错误轨迹,每条约 8 个截断点,teacher 与学生各续写 16 次,得到 $V^T$、$V^S$;关闭点 = teacher 前 8 次成功率第一次低于 0.5 的截断点(曲线用另外 8 次) | 1 |
-| E2 | 续写是否落回学生原来的错误答案 | 1 |
-| E3 | OPD 每个 token 的 advantage 在关闭点前后是否不同 | 1 |
-| E4 | 截在关闭点前后的解答交给 critic 批改,并逐条判断列出的错误是否属实 | 2 |
-| E5 | 完整解答的批改:第一条错误相对关闭区间的位置(另有附录 C 原单错误提示词作对照) | 3 |
-| E6 | 从方法断点(最后一条错误之后)出发:teacher / 学生直接写、学生 + 通用提示、学生 + 全部反馈、teacher + 全部反馈 | 2 |
-| E7 | 带反馈重写的状态与被丢弃的原轨迹尾部,teacher 与学生的成功率 | 方法 |
-| E8 | 逐条判断 critic 列出的错误是否属实 | 2、3 |
-| E9 | 不看 critic 输出,由判定模型独立标注第一个错误 | 3 |
-| E10 | 在第一个错误(独立标注与 critic 各一)和最后一条错误的前后各截一刀,teacher 与学生各续写 16 次,判断崩溃从哪里开始 | 3 |
+| `CRITIC_OPD_ENABLE` | `1` | `0` gives plain OPD |
+| `CRITIC_OPD_GIVE_GT` | `1` | the critic receives the reference answer |
+| `CRITIC_OPD_KERR` | `last` | the critic lists all errors and the student keeps its prefix through the `k`-th one (`1`, `2`, `3`, or `last`) |
+| `CRITIC_OPD_CRITIC_TOKENS` | `2048` | length limit of the critique; an incomplete last error is discarded |
+| `CRITIC_OPD_FB_ANSWER` | `1` | the feedback ends with "The correct final answer is …" |
+| `CRITIC_OPD_LOSS` | `fb` | `fb`: the teacher scores the rewrite with the feedback; `clean`: without it |
+| `CRITIC_OPD_FB_MODE` | `critique` | `generic`: a fixed generic hint; `answer`: the reference answer only |
+| `CRITIC_OPD_REWRITER` | `student` | `teacher`: the teacher writes the suffix after the cut point |
 
-**运行**:`bash diag2/pipeline.sh`(主批次全流程)→ `bash diag2/pipeline_ext.sh` 与 `pipeline_ext2.sh <closing 任务>`(扩充批次:其余错误轨迹)→ `bash diag2/pipeline_e10.sh <目录> <前缀>`(E9、E10)→ `python3 diag2/merge_out.py out out_b`(合并)→ `DIAG_OUT=<目录> python3 diag2/report.py`(数字与图)→ `python3 diag2/package.py <名字>`(打包)。各阶段是 `diag2/diag.py` 的子命令,含义见该文件开头的说明。
+During training, the log reports the share of rollouts that are rewritten (`critic_opd/repair_seq_frac`) and the share of training tokens that come from rewrites (`critic_opd/repair_tok_frac`).
 
-## 十一、跨模型诊断(OLMo)
+## 🔬 Reproducing the Paper
 
-`crossmodel_diag/` 是 `diag2/` 中生成论文图 3、图 4、图 5(a) 那部分流程的移植版:实验逻辑与提示词不变,模型路径和与模型有关的设置(对话模板参数、停止符、长度)改由配置文件给出,并用论文数据核对过作图数字。在 OLMo 上运行的步骤、需要修改和不能修改的地方、需要发回的内容,见 `crossmodel_diag/README.md`。
+### Main table
+
+`baseline.sh` runs every baseline of the paper with the settings of Table 1 and stops at the step selected there. `SIZE` chooses the student.
+
+```bash
+SIZE=1.7B SEED=42 OUTPUT_ROOT=$PWD/runs bash opd/scripts/criticopd/baseline.sh relayopd
+```
+
+| Method | `baseline.sh` | Step (1.7B / 0.6B) | Notes |
+|---|---|:-:|---|
+| SFT | `sft` | 40 / 139 | cross-entropy on teacher solutions |
+| KD | `kd` | 139 / 139 | top-128 forward KL on teacher solutions |
+| GRPO | `grpo` | 120 / 80 | binary reward, 8 rollouts per prompt |
+| Critique-GRPO | `cgrpo` | 40 / 40 | 7 rollouts per prompt plus one refinement after the critique |
+| OPD | `opd` | 80 / 40 | sampled-token reverse-KL objective |
+| OPSD-T | `opsdt` | 60 / 80 | the teacher scores with the reference answer in its context |
+| FastOPD | `fastopd` | 60 / 40 | training responses of at most 8,192 tokens |
+| TRD | `trd` | 40 / 139 | top-128 forward KL on teacher rewrites |
+| SKD | `skd` | 120 / 40 | speculative decoding, top-5 acceptance |
+| RelayOPD | `relayopd` | 40 / 60 | teacher takeovers at reflection tokens |
+| CriticOPD | `train.sh` | 40 / 40 | |
+
+SFT and KD train on one teacher solution per prompt, and TRD trains on teacher rewrites of student solutions. Create these files first and pass them in `OFFLINE_DATA`:
+
+```bash
+MODE=teacher OUTPUT_PARQUET=$PWD/offline/teacher.parquet bash opd/scripts/criticopd/offline_data.sh
+MODE=trd     OUTPUT_PARQUET=$PWD/offline/trd_1.7B.parquet bash opd/scripts/criticopd/offline_data.sh
+OFFLINE_DATA=$PWD/offline/teacher.parquet SIZE=1.7B OUTPUT_ROOT=$PWD/runs bash opd/scripts/criticopd/baseline.sh kd
+```
+
+### Ablations and sensitivity
+
+```bash
+OUTPUT_ROOT=$PWD/runs bash opd/scripts/criticopd/ablation.sh no_fb_scoring
+```
+
+| Variant | Change from the final configuration |
+|---|---|
+| `no_answer` | the feedback contains only the critique |
+| `answer_only` | the feedback states only the reference answer |
+| `generic` | the feedback is a fixed generic hint |
+| `teacher_suffix` | the teacher writes the suffix after the cut point |
+| `no_fb_scoring` | the teacher scores the suffix without the feedback |
+| `k1`, `k2`, `k3` | the student keeps its prefix through the k-th listed error |
+| `limit512`, `limit1024`, `limit4096` | length limit of the critique |
+
+### Evaluation
+
+`eval.sh` samples with temperature 1.0 and top-p 1.0 and allows up to 32,768 new tokens. It reports avg@32 on AIME 2024, AIME 2025, and AMC 2023 and avg@8 on MATH500, OlympiadBench, and Minerva Math, together with their average. Answers are graded with Math-Verify.
+
+| AIME 2024 | AIME 2025 | AMC 2023 | MATH500 | OlympiadBench | Minerva Math |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| 30 | 30 | 83 | 500 | 675 | 272 |
+
+## 🧩 Repository Layout
+
+```
+setup.sh                              clones Relay-OPD at the pinned commit and adds the files below
+overlay/                              mirrors relay-opd/ of Relay-OPD
+  verl/experimental/agent_loop/
+    critic_opd_agent_loop.py          CriticOPD: grading, critique, cut point, rewrite; also OPSD-T and Critique-GRPO
+    agent_loop.py                     teacher scoring of the rewrite with the feedback (L_fb)
+  verl/trainer/ppo/                   Critique-GRPO advantage and loss, rewrite metrics
+  verl/trainer/distillation/          distillation losses
+  verl/workers/, verl/utils/          rollout, engine, and config changes used by the baselines
+  opd/scripts/criticopd/
+    train.sh                          CriticOPD with the final configuration
+    ablation.sh                       ablations and sensitivity analysis
+    baseline.sh                       all baselines with the settings of Table 1
+    offline_data.sh                   teacher solutions (SFT, KD) and teacher rewrites (TRD)
+    eval.sh                           evaluation protocol of the paper
+  opd/scripts/baselines/, relay_opd/  baseline training scripts of Relay-OPD with our changes
+  opd/data/, opd/eval/, opd/patches/  offline data generation, evaluation, speculative decoding
+data/
+  dapo-math-17k.parquet               training prompts (17,917 problems)
+  bench/                              the six evaluation benchmarks
+assets/                               figures used in this README
+```
+
+## 📖 Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{zhao2026recovering,
+  title   = {Recovering Reliable Supervision via Critique-Guided On-Policy Distillation},
+  author  = {Zhao, Kaixiang and Yu, Tianrun and Li, Shangzhe and Yang, Yuxiao and Hughes, Amanda and Zhang, Weitong and Killian, Taylor W.},
+  journal = {arXiv preprint},
+  year    = {2026}
+}
+```
+
+## 🤝 Acknowledgments
+
+Training builds on [Relay-OPD](https://github.com/zju-real/Relay-OPD) and [verl](https://github.com/volcengine/verl), with rollouts served by [vLLM](https://github.com/vllm-project/vllm) and answers graded by [Math-Verify](https://github.com/huggingface/Math-Verify). We thank the authors of the baselines for releasing their implementations.
+
+## 📄 License
+
+This project is released under the [Apache License 2.0](LICENSE). The files in `overlay/` are derived from Relay-OPD and verl and are distributed under the same license.
