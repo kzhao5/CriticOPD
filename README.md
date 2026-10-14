@@ -1,7 +1,6 @@
 <div align="center">
-<br>
-<img src="assets/logo.png" width="480">
-<h2>Recovering Reliable Supervision via<br>Critique-Guided On-Policy Distillation</h2>
+<img src="assets/logo.png" width="520">
+<h2>Recovering Reliable Supervision via Critique-Guided On-Policy Distillation</h2>
 
 <p>
 Kaixiang Zhao<sup>1</sup>, Tianrun Yu<sup>1</sup>, Shangzhe Li<sup>2</sup>, Yuxiao Yang<sup>2</sup>, Amanda Hughes<sup>1</sup>, Weitong Zhang<sup>2</sup>, Taylor W. Killian<sup>1</sup><br>
