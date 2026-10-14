@@ -317,11 +317,11 @@ def distillation_loss(
             if _sadv.is_nested:
                 _sadv = _sadv.to_padded_tensor(0.0)
             _adv = _adv + _sadv.to(dtype=_adv.dtype)
-        # CriticOPD L_center:修复段是 off-policy 的,A = log pi_T - log pi_S 整体带一个负偏移,
-        # 于是即便是"好的"纠正也拿不到正优势。减去同 batch 内 on-policy token 的平均优势后,
-        # 比平均更好的纠正片段才转正(离线上纠正段 -0.07 vs 平均 -0.15)。
-        # 注意:这里的基线是 micro-batch 均值,不是严格的全 batch 均值 —— micro-batch 是随机切的,
-        # 所以它是全 batch 均值的无偏估计,只是多一点方差。critic_center_baseline 会记进 metrics。
+        # CriticOPD L_center: the repair segment is off-policy, so A = log pi_T - log pi_S carries an overall negative offset,
+        # and even "good" corrections cannot get a positive advantage. After subtracting the mean advantage of on-policy tokens in the same batch,
+        # correction segments that are better than average become positive (offline: correction segments -0.07 vs average -0.15).
+        # Note: the baseline here is the micro-batch mean, not the exact full-batch mean. Micro-batches are split randomly,
+        # so it is an unbiased estimate of the full-batch mean, only with somewhat higher variance. critic_center_baseline is logged to metrics.
         if "critic_repair_mask" in data.keys():
             _rep = data["critic_repair_mask"]
             if _rep.is_nested:

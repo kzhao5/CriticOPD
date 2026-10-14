@@ -103,7 +103,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     loss_mode = config.policy_loss.get("loss_mode", "vanilla")
 
     if loss_mode == "critique_grpo":
-        # Critique-GRPO:精炼回答的 token 用 shaping 比率,其余 token 用不裁剪的重要性比率
+        # Critique-GRPO: tokens of refined answers use the shaping ratio; all other tokens use the unclipped importance ratio
         from verl.trainer.ppo.core_algos import compute_policy_loss_critique_grpo
 
         refine_mask = data.get("critique_refine_mask", None)

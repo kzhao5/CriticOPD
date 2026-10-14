@@ -1,5 +1,6 @@
 <div align="center">
 <br>
+<img src="assets/logo.png" width="480">
 <h2>Recovering Reliable Supervision via<br>Critique-Guided On-Policy Distillation</h2>
 
 <p>
@@ -98,9 +99,11 @@ A run on Qwen3-1.7B uses one node with four NVIDIA A100-80GB GPUs: two for the s
 
 ## 🚀 Quick Start
 
-All commands run from `Relay-OPD/relay-opd`. The training prompts and the six evaluation benchmarks are in [`data/`](data).
+All commands run from `Relay-OPD/relay-opd`. The six evaluation benchmarks are in [`data/bench`](data/bench), and `data/prepare_dapo.py` creates the training prompts from [DAPO-Math-17k](https://huggingface.co/datasets/BytedTsinghua-SIA/DAPO-Math-17k).
 
 ```bash
+python ../../data/prepare_dapo.py          # -> data/dapo-math-17k.parquet (17,917 problems)
+
 export STUDENT_MODEL=Qwen/Qwen3-1.7B
 export TEACHER_MODEL=Qwen/Qwen3-4B-Instruct-2507
 export TRAIN_DATA=$PWD/../../data/dapo-math-17k.parquet
@@ -205,7 +208,7 @@ overlay/                              mirrors relay-opd/ of Relay-OPD
   opd/scripts/baselines/, relay_opd/  baseline training scripts of Relay-OPD with our changes
   opd/data/, opd/eval/, opd/patches/  offline data generation, evaluation, speculative decoding
 data/
-  dapo-math-17k.parquet               training prompts (17,917 problems)
+  prepare_dapo.py                     training prompts: one copy of each DAPO-Math-17k problem (17,917)
   bench/                              the six evaluation benchmarks
 assets/                               figures used in this README
 ```

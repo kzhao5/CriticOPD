@@ -235,7 +235,7 @@ class SFTTrainer:
 
         self.train_sampler = DistributedSampler(
             self.train_dataset, shuffle=True, num_replicas=dp_size, rank=dp_rank, drop_last=True,
-            seed=int(os.environ.get("SFT_DATA_SEED", "0")),   # 多 seed 实验用;默认 0 与原来一致
+            seed=int(os.environ.get("SFT_DATA_SEED", "0")),   # for multi-seed experiments; the default 0 matches the original behavior
         )
 
         self.global_batch_size = config.data.train_batch_size

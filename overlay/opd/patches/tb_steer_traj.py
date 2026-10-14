@@ -1,4 +1,4 @@
-"""Trajectory-level occupancy-term steering (轨迹级占据项 steering), faithful to the
+"""Trajectory-level occupancy-term steering, faithful to the
 OPD-yyx design doc. Adds a second term on the samplek/OPD trunk: each trajectory gets a
 scalar advantage A_hat, broadcast to all its tokens.
 

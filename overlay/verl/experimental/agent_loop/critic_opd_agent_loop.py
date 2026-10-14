@@ -1,12 +1,12 @@
-# CriticOPD: 学生写完整 -> 判错 -> teacher 指出首处错误并给反馈 -> 学生带反馈重写。
+# CriticOPD: the student writes a full solution -> it is graded wrong -> the teacher points out the first error and gives feedback -> the student rewrites with the feedback.
 #
-# 和 Relay/Lucid 的区别:那两个是在采样过程中"换手"(teacher 从同一前缀续写),这里是
-# 事后批评 + 重写,teacher 在一个完全不同的 prompt(critic prompt)上生成,不参与解题。
+# Difference from Relay/Lucid: those two "hand off" during sampling (the teacher continues from the same prefix); this is
+# post-hoc critique + rewrite, where the teacher generates on an entirely different prompt (the critic prompt) and does not solve the problem.
 #
-# 训练侧的约定(response_mask):
-#   保留的前缀  -> 0   反馈 -> 不进序列   学生重写的 token -> 1
-# 也就是说,反馈只在生成时出现在上下文里,训练时被去掉,损失只落在学生自己写的修复 token 上。
-# 这正是"让学生把修正内化"的意思:测试时没有 teacher,它必须自己写出修正后的那段。
+# Training-side convention (response_mask):
+#   kept prefix  -> 0   feedback -> not in the sequence   student rewrite tokens -> 1
+# That is, the feedback is in the context only during generation and is removed for training; the loss falls only on the repair tokens the student wrote itself.
+# This is what "make the student internalize the correction" means: there is no teacher at test time, so the student must write the corrected part on its own.
 import asyncio
 import json
 import random
@@ -41,11 +41,11 @@ CRITIC_SYS = (
     "4. DO NOT continue the solution. DO NOT compute or state the final answer.\n\n"
     "Reply exactly as:\nSEGMENT: <index>\nQUOTE: <verbatim>\nFEEDBACK: <what is wrong and what to do>"
 )
-# ---- GT 思路(CRITIC_OPD_GIVE_GT=1):critic 拿到正确答案 ----
-# 原 prompt 只告诉 teacher「学生答错了」,不给正确答案,teacher 必须先自己解出题目才能判断
-# 哪一步错 —— 而 Qwen3-4B 在 aime24 上自己也只有约 40 分。这里把正确答案写进任务定义,
-# 给出定位方法,排除「学生后来自己纠正的弯路」这类误判,并允许 teacher 说「找不到」:
-# 错误的定位比没有定位更糟,它会让学生从一个本来正确的位置重写。
+# ---- GT variant (CRITIC_OPD_GIVE_GT=1): the critic is given the correct answer ----
+# The original prompt only tells the teacher "the student's answer is wrong" without giving the correct answer, so the teacher must first solve the problem itself to tell
+# which step is wrong -- and Qwen3-4B itself scores only about 40 on aime24. Here the correct answer is written into the task definition,
+# a method for locating the error is given, false positives such as "a detour the student later corrects" are ruled out, and the teacher may say "not found":
+# a wrong location is worse than none, because it makes the student rewrite from a position that was actually correct.
 _GT_RULES = (
     "How to locate the error:\n"
     "Read the numbered segments in order. For each one ask: given everything before it, is this "
@@ -74,7 +74,7 @@ CRITIC_SYS_GT = (
     "FINAL ANSWER IS WRONG. You are given the correct answer. Use it as a reference to trace the "
     "student's work forward and find the EARLIEST step after which the correct answer can no "
     "longer be reached.\n\n" + _GT_RULES)
-# 写不完(顶上限)的轨迹没有最终答案,不能说「答案错了」;让 teacher 判断这条路还走不走得通。
+# An unfinished trajectory (hit the length cap) has no final answer, so we cannot say "the answer is wrong"; the teacher judges whether this path can still succeed.
 CRITIC_SYS_GT_CAPPED = (
     "You are a meticulous math teacher. A student's solution ran on without ever reaching an "
     "answer. You are given the correct answer. Use it as a reference to trace the student's work "
@@ -82,10 +82,10 @@ CRITIC_SYS_GT_CAPPED = (
     "a valid path and was merely slow, reply SEGMENT: NONE.\n\n" + _GT_RULES)
 _RE_NONE = re.compile(r"SEGMENT:\s*\[?\s*(NONE|N/A|-)\b", re.I)
 
-# ---- 参考解答版批改(CRITIC_OPD_REF_FILE):critic 额外拿到 teacher 离线做对的一份完整解答 ----
-# 离线检验(criticopd/ref_probe.py,400 条同批错题):修复成功率 22.0% -> 36.0%,
-# 95% CI [+9.8, +18.1];严格口径的答案泄露不变(9.2% vs 9.2%),重写不变短,误报减少。
-# 提示词与 ref_probe.py 的 B 逐字一致。
+# ---- Reference-solution critique (CRITIC_OPD_REF_FILE): the critic also gets a complete correct solution produced offline by the teacher ----
+# Offline check (criticopd/ref_probe.py, 400 wrong solutions from the same batch): repair success rate 22.0% -> 36.0%,
+# 95% CI [+9.8, +18.1]; answer leakage under the strict criterion is unchanged (9.2% vs 9.2%), rewrites do not get shorter, and false positives drop.
+# The prompt is verbatim identical to variant B in ref_probe.py.
 _REF_RULES = (
     "How to locate the error:\n"
     "Read the student's numbered segments in order. Check the mathematics of each one, using the "
@@ -115,23 +115,23 @@ CRITIC_SYS_REF = (
     "You are a meticulous math teacher. A student has submitted a complete solution whose FINAL "
     "ANSWER IS WRONG. You are given the correct final answer and a correct reference solution. "
     "Use them to find the EARLIEST step where the student's work goes wrong.\n\n" + _REF_RULES + _REF_FMT)
-# 写不完的轨迹:离线检验里只有 2.2%,没有单独测;开头沿用 CRITIC_SYS_GT_CAPPED 的说法,其余与上面相同。
+# Unfinished trajectories: only 2.2% in the offline check, not tested separately; the opening reuses the wording of CRITIC_SYS_GT_CAPPED, the rest is the same as above.
 CRITIC_SYS_REF_CAPPED = (
     "You are a meticulous math teacher. A student's solution ran on without ever reaching an answer. "
     "You are given the correct final answer and a correct reference solution. Use them to find the "
     "EARLIEST step that sent the reasoning off track. If the work is still on a valid path and was "
     "merely slow, reply SEGMENT: NONE.\n\n" + _REF_RULES + _REF_FMT)
 
-# ---- 截断思路(CRITIC_OPD_TRUNC=1):学生改完出错的那一步就停 ----
-# 原设计让学生从拼接点一直写到 EOS:离线 67.8% 的重写顶上限、修复成功率 0.0%,却全部以
-# mask=1 进了训练序列。出错段本身中位只有 149 字符(约 40 token),所以只训练「改这一步」。
-# 边界 = 有实质内容之后的第一个空行(和分段规则一致)。
+# ---- Truncation variant (CRITIC_OPD_TRUNC=1): the student stops right after fixing the wrong step ----
+# The original design had the student write from the splice point all the way to EOS: offline, 67.8% of rewrites hit the length cap and the repair success rate was 0.0%, yet all of them
+# went into the training sequence with mask=1. The erroneous segment itself has a median of only 149 characters (about 40 tokens), so we train only on "fix this step".
+# Boundary = the first blank line after substantive content (consistent with the segmentation rule).
 _BLANK = re.compile(r"\S[^\S\n]*\n[^\S\n]*\n")
 
 
 def _cut_at_blank_line(tok, ids: list[int]) -> int:
-    """返回 k,使 ids[:k] 恰好结束在「实质内容之后的第一个空行」处(含该空行)。
-    「前缀里是否已出现空行」对 k 单调,所以二分;找不到空行就整段保留。"""
+    """Return k such that ids[:k] ends exactly at "the first blank line after substantive content" (including that blank line).
+    "Whether the prefix already contains a blank line" is monotone in k, so use binary search; if there is no blank line, keep the whole span."""
     if not ids or not _BLANK.search(tok.decode(ids, skip_special_tokens=True)):
         return len(ids)
     lo, hi = 1, len(ids)
@@ -146,9 +146,9 @@ def _cut_at_blank_line(tok, ids: list[int]) -> int:
 
 FEEDBACK_TMPL = ("\n\n[Teacher feedback] {fb}\n\nUsing this feedback, continue the solution from here. "
                  "Put your final answer in \\boxed{{}}.\n\n")
-# 基线 Critique-GRPO 的精炼指令,与官方实现(critique-GRPO/verl/critique_grpo/refinement_prompts.py)相同:
-# 新开一轮对话,user 消息里给出题目、原解答和批改,要求逐步推理重答。
-# (2026-10-10 冒烟:把批改接在原回答后面、在同一个 assistant 轮里续写时,学生只补一行最终答案,精炼退化成抄答案)
+# Refinement instruction of the Critique-GRPO baseline, identical to the official implementation (critique-GRPO/verl/critique_grpo/refinement_prompts.py):
+# start a new conversation whose user message gives the problem, the original solution, and the critique, and asks for a step-by-step re-answer.
+# (In a smoke test, appending the critique to the original answer and continuing in the same assistant turn made the student add only a one-line final answer, so refinement degenerated into copying the answer)
 CGRPO_REFINE_SYS = "You are a helpful assistant."
 CGRPO_REFINE_USER = (
     "Given the following inputs:\n"
@@ -167,8 +167,8 @@ def _is_leadin(p):
 
 
 def segment(text):
-    """按空行切,再把标题/分隔线/引导句并入后一段。按形态判断而不是长度 ——
-    只按"短"合并会把正常的短内容块(一行公式、一句结论)也并掉。"""
+    """Split on blank lines, then merge headings/separators/lead-in sentences into the following segment. Decide by form, not length --
+    merging only by "short" would also swallow normal short content blocks (a one-line formula, a one-sentence conclusion)."""
     parts = [p.strip() for p in _SEP.split(text) if p.strip()]
     merged, buf = [], []
     for p in parts:
@@ -180,8 +180,8 @@ def segment(text):
 
 
 def parse_critic(text, segs):
-    """优先用引用在原文里定位,编号只作兜底 —— critic 的编号经常偏一两格,引用不会。"""
-    if _RE_NONE.search(text):          # critic 明确说找不到错:放弃,不让引用匹配绕过
+    """Locate by the quote in the original text first and use the index only as a fallback -- the critic's index is often off by one or two, the quote is not."""
+    if _RE_NONE.search(text):          # critic explicitly says it found no error: give up, do not let quote matching override this
         return None, None
     mq, mf, ms = _RE_Q.search(text), _RE_FB.search(text), _RE_SEG.search(text)
     fb = mf.group(1).strip() if mf else None
@@ -200,9 +200,9 @@ def parse_critic(text, segs):
 
 
 
-# ---- k 消融(CRITIC_OPD_KERR):批改老师按顺序列出所有错误,在第 k 个错误处断开 ----
-# 规则与 CRITIC_SYS_GT 相同,只把「只找第一个」改成「按顺序列出全部(至多 5 个)」。
-# k=1 时批语格式与 R4GT 完全一样(只含第一个错误的反馈),所以 k=1 与 R4GT 只差批改提示词本身。
+# ---- k ablation (CRITIC_OPD_KERR): the critic teacher lists all errors in order, and we cut at the k-th error ----
+# Same rules as CRITIC_SYS_GT, except "find only the first" becomes "list all of them in order (at most 5)".
+# With k=1 the feedback format is exactly that of R4GT (feedback on the first error only), so k=1 differs from R4GT only in the critique prompt itself.
 _MULTI_RULES = (
     "How to locate the errors:\n"
     "Read the numbered segments in order. For each one ask: given everything before it, is this step "
@@ -232,9 +232,9 @@ CRITIC_SYS_MULTI_CAPPED = (
     "You are given the correct answer. Use it as a reference to trace the student's work forward and find "
     "the steps that sent the reasoning off track. If the work is still on a valid path and was merely "
     "slow, reply SEGMENT: NONE.\n\n" + _MULTI_RULES)
-# 消融 CRITIC_OPD_FB_MODE=generic:与方法同一模板,只放一条不含内容的反馈
+# Ablation CRITIC_OPD_FB_MODE=generic: same template as the method, but with a single content-free feedback message
 GENERIC_FEEDBACK = "Your solution contains errors. Check the previous reasoning and redo it."
-# 消融 CRITIC_OPD_ALL 用:答对的 rollout 不能说「答案是错的」,第一段改成中性描述,其余规则不变
+# For ablation CRITIC_OPD_ALL: for a correct rollout we cannot say "the answer is wrong", so the first paragraph is neutral; the other rules are unchanged
 CRITIC_SYS_MULTI_ANY = (
     "You are a meticulous math teacher. A student has submitted a complete solution. You are given the correct "
     "answer. Use it as a reference to trace the student's work forward and find the steps that contain genuine "
@@ -243,9 +243,9 @@ _RE_ERRHDR = re.compile(r"\bERROR\s*\d+\s*:?\s*$", re.I)
 
 
 def parse_critic_multi(text, segs, max_err=5):
-    """解析多错误批改 -> [(段号, 引用, 反馈)],按段号升序、去重。
-    按「SEGMENT:」切块(批改老师把序号和段号写在同一行时也能切开),每块复用 parse_critic 的
-    引用优先定位;块尾残留的下一个「ERROR k」标题从反馈里去掉。整段只有 NONE 时返回空列表。"""
+    """Parse a multi-error critique -> [(segment index, quote, feedback)], sorted by segment index and deduplicated.
+    Split into blocks at "SEGMENT:" (this also works when the critic writes the error number and segment index on the same line); each block reuses parse_critic's
+    quote-first localization; a leftover "ERROR k" header of the next block at the end of a block is removed from the feedback. Returns an empty list when the whole text is only NONE."""
     errs, seen = [], set()
     for b in re.split(r"(?i)(?=SEGMENT\s*:)", text):
         if not re.match(r"(?i)SEGMENT\s*:", b):
@@ -267,14 +267,14 @@ _RE_LAST_BLOCK = re.compile(r"(?i)(?:ERROR\s*\d+\s*:?\s*)?SEGMENT\s*:")
 
 
 def drop_incomplete_tail(text):
-    """批改输出撞到长度上限时,最后一块(从最后一个 SEGMENT: 起)一定没写完:整块去掉。
-    只在确认被截断时调用;没有任何 SEGMENT: 时原样返回。"""
+    """When the critique output hits the length cap, the last block (from the last SEGMENT: on) is necessarily unfinished: drop the whole block.
+    Call only when truncation is confirmed; if there is no SEGMENT: at all, return the text unchanged."""
     ms = list(_RE_LAST_BLOCK.finditer(text))
     return text[:ms[-1].start()] if ms else text
 
 
 def kerr_select(errs, kerr):
-    """在第 k 个错误处断开;错误数少于 k 时取最后一个。kerr 为 '1'/'2'/'3'/.../'last'。"""
+    """Cut at the k-th error; if there are fewer than k errors, take the last one. kerr is '1'/'2'/'3'/.../'last'."""
     if not errs:
         return []
     k = len(errs) if str(kerr) == "last" else min(int(kerr), len(errs))
@@ -282,25 +282,25 @@ def kerr_select(errs, kerr):
 
 
 def leaks_answer(fb, gt, stu):
-    """反馈里出现了标准答案(独立成词),而学生原文里没有 -> 视为泄露答案。"""
+    """The reference answer appears in the feedback (as a standalone token) but not in the student's original text -> treat as answer leakage."""
     if gt is None:
         return False
     g = str(gt).strip().strip("$")
     if not g:
         return False
-    # 前后不能紧挨字母数字或小数点+数字(避免 3280、1.328、23.5 误判);句末的「23.」要算
+    # Must not be directly adjacent to an alphanumeric or to a decimal point + digit (avoids false matches in 3280, 1.328, 23.5); a sentence-final "23." still counts
     pat = r"(?<![\w.])" + re.escape(g) + r"(?!\w|\.\d)"
     return bool(re.search(pat, fb or "")) and not re.search(pat, stu or "")
 
 
 def drop_leaky(errs, gt, stu):
-    """去掉反馈泄露答案的错误。多错误批改越往后越容易在反馈里写出答案(k=1/2/last 约 1.5%/7%/10%),
-    不去掉的话 k 越大重写越容易「照抄答案」,k 的比较就不公平。"""
+    """Drop errors whose feedback leaks the answer. Later entries of a multi-error critique are more likely to state the answer in the feedback (k=1/2/last about 1.5%/7%/10%);
+    without dropping them, a larger k makes the rewrite more likely to "copy the answer", and the comparison across k is unfair."""
     return [e for e in errs if not leaks_answer(e[2], gt, stu)]
 
 
 def kerr_feedback(sel):
-    """k=1 与 R4GT 的批语格式完全一样;k>1 时按顺序列出各个错误(附原文引用,截到 200 字)。"""
+    """With k=1 the feedback format is exactly that of R4GT; with k>1 the errors are listed in order (each with its quote from the original text, truncated to 200 characters)."""
     if len(sel) == 1:
         return sel[0][2]
     parts = [f'({i + 1}) In "{q[:200]}": {fb}' for i, (_, q, fb) in enumerate(sel)]
@@ -308,12 +308,12 @@ def kerr_feedback(sel):
 
 
 def _tok_prefix_for_text(tok, ids: list[int], text: str) -> int:
-    """返回最小的 k,使 decode(ids[:k]) 已经覆盖 text。
+    """Return the smallest k such that decode(ids[:k]) already covers text.
 
-    之前是把保留段 decode 成文本再 encode 回 token,这会引入 tokenization 漂移:
-    训练序列不再是学生自己轨迹的前缀,而且 out.log_probs 和 kept_ids 对不上 ——
-    rollout_log_probs 在 bypass 模式下会直接变成 old_log_probs(PPO 比值的分母),
-    错位就会污染训练。直接在原始 rollout token 上二分切,两个问题一起消掉。
+    Previously the kept segments were decoded to text and re-encoded to tokens, which introduces tokenization drift:
+    the training sequence is no longer a prefix of the student's own trajectory, and out.log_probs no longer lines up with kept_ids --
+    in bypass mode rollout_log_probs directly become old_log_probs (the denominator of the PPO ratio),
+    so the misalignment corrupts training. Binary-searching the cut directly on the original rollout tokens removes both problems.
     """
     target = len(text.rstrip())
     if target <= 0:
@@ -328,16 +328,16 @@ def _tok_prefix_for_text(tok, ids: list[int], text: str) -> int:
     return lo
 
 
-# ---- 进程内判分 -> 独立进程判分 ----
-# 2026-10-02 R4GTV(13949875)在 step 2 整体冻住 47 分钟:判分线程卡在 sympy 的
-# Integer._eval_power(C 层大整数乘方,运算期间一直持有 GIL),agent loop 的事件循环线程
-# 拿不到 GIL,连 asyncio.wait_for 的 30 秒超时都触发不了。线程判分对这种情况无解。
-# 这里把判分放进常驻子进程,通过 stdin/stdout 一问一答;父进程这边只是异步读管道,
-# 超时就 kill 子进程、补一个新的。子进程卡死只会卡它自己。
+# ---- In-process grading -> grading in separate processes ----
+# An R4GTV run once froze entirely for 47 minutes at step 2: the grading thread was stuck in sympy's
+# Integer._eval_power (C-level big-integer exponentiation that holds the GIL for the whole computation), so the agent loop's event-loop thread
+# could not get the GIL and even the 30-second asyncio.wait_for timeout could not fire. Thread-based grading cannot handle this case.
+# Here grading runs in persistent subprocesses, one request and one reply per line over stdin/stdout; the parent only reads the pipe asynchronously,
+# and on timeout kills the subprocess and spawns a replacement. A hung subprocess only blocks itself.
 _GRADER_SRC = r"""
 import sys, os, json
 out = os.fdopen(os.dup(1), "w", buffering=1)
-os.dup2(2, 1)                         # 库里的 print 都改去 stderr,协议只走 out
+os.dup2(2, 1)                         # library prints all go to stderr; the protocol uses only out
 sys.path.insert(0, "__ROOT__")
 os.environ.setdefault("MATH_GRADER_PATH", "__ROOT__/opd/reward/grader")
 from opd.reward.math_reward import compute_score
@@ -378,7 +378,7 @@ class _GraderPool:
         while True:
             line = await asyncio.wait_for(proc.stdout.readline(), timeout=180)
             if not line:
-                raise RuntimeError("grader 子进程启动失败")
+                raise RuntimeError("grader subprocess failed to start")
             if line.startswith(b"@@READY"):
                 return proc
 
@@ -387,13 +387,13 @@ class _GraderPool:
             proc.kill()
         except ProcessLookupError:
             pass
-        asyncio.ensure_future(proc.wait())            # 回收,避免僵尸进程
+        asyncio.ensure_future(proc.wait())            # reap it to avoid a zombie process
         for _ in range(5):
             try:
                 self.idle.put_nowait(await self._spawn())
                 return
             except Exception as e:                    # noqa: BLE001
-                logger.warning("[critic_opd] 重建 grader 子进程失败: %s", e)
+                logger.warning("[critic_opd] failed to respawn grader subprocess: %s", e)
                 await asyncio.sleep(5)
 
     async def _ensure(self):
@@ -417,14 +417,14 @@ class _GraderPool:
                 while True:
                     line = await proc.stdout.readline()
                     if not line:
-                        raise RuntimeError("grader 子进程退出")
+                        raise RuntimeError("grader subprocess exited")
                     if line.startswith(b"@@R "):
                         return line[4:5] == b"1"
 
             r = await asyncio.wait_for(_read(), timeout=timeout)
         except BaseException:
-            # 超时 / 取消 / 子进程挂了:这个子进程可能还会吐出一行迟到的结果,
-            # 留着它会被下一个请求读走而张冠李戴,所以一律杀掉换新。
+            # Timeout / cancellation / dead subprocess: this subprocess may still emit a late result line,
+            # which the next request would read and misattribute, so always kill it and spawn a new one.
             asyncio.ensure_future(self._replace(proc))
             raise
         self.idle.put_nowait(proc)
@@ -433,9 +433,9 @@ class _GraderPool:
 
 @register("critic_opd_agent")
 class CriticOpdAgentLoop(AgentLoopBase):
-    # 新开关的类级默认值:任何绕过 __init__ 的构造路径下也有定义。否则 _run 里读到不存在的
-    # 属性会抛 AttributeError,被 run() 外层的 try/except 静默降级成普通 rollout ——
-    # 和之前 asyncio 漏 import 是同一类静默失效。
+    # Class-level defaults for the new switches, so they are defined even on construction paths that bypass __init__. Otherwise reading a missing
+    # attribute in _run raises AttributeError, which the outer try/except in run() silently downgrades to a plain rollout --
+    # the same kind of silent failure as the earlier missing asyncio import.
     give_gt = False
     trunc = False
     trunc_max = 512
@@ -451,7 +451,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
     critic_all = False
     cut_mode = "error"
     fb_mode = "critique"
-    _REFS = None            # {sha1(题目文本): 参考解答},每个进程加载一次
+    _REFS = None            # {sha1(problem text): reference solution}, loaded once per process
     anneal = None
     global_step = -1
 
@@ -459,46 +459,46 @@ class CriticOpdAgentLoop(AgentLoopBase):
         super().__init__(*args, **kwargs)
         self.prompt_length = self.rollout_config.prompt_length
         self.response_length = self.rollout_config.response_length
-        # SPLICE=before 对应"选项 1"(不保留出错段),=after 对应"选项 2"(保留出错段让学生反思)
+        # SPLICE=before is "option 1" (drop the erroneous segment), =after is "option 2" (keep the erroneous segment so the student can reflect on it)
         self.splice = os.environ.get("CRITIC_OPD_SPLICE", "before").strip().lower()
         self.enabled = os.environ.get("CRITIC_OPD_ENABLE", "1") == "1"
-        self.use_feedback = os.environ.get("CRITIC_OPD_USE_FEEDBACK", "1") == "1"  # 0 = R2 的无反馈对照
+        self.use_feedback = os.environ.get("CRITIC_OPD_USE_FEEDBACK", "1") == "1"  # 0 = the no-feedback control of R2
         self.critic_max_tokens = int(os.environ.get("CRITIC_OPD_CRITIC_TOKENS", "512"))
         self.give_gt = os.environ.get("CRITIC_OPD_GIVE_GT", "0") == "1"
         self.trunc = os.environ.get("CRITIC_OPD_TRUNC", "0") == "1"
         self.trunc_max = int(os.environ.get("CRITIC_OPD_TRUNC_MAX", "512"))
-        # 只保留修对的重写:重写后用 gt 再判一次,没修对就退回原始 rollout 按 plain OPD 训练。
+        # Keep only correct rewrites: grade the rewrite against gt again; if it is not fixed, fall back to the original rollout and train it with plain OPD.
         self.keep_correct = os.environ.get("CRITIC_OPD_KEEP_CORRECT", "0") == "1"
         self.ref_file = os.environ.get("CRITIC_OPD_REF_FILE") or None
-        self.critic_maxlen = int(os.environ.get("CRITIC_OPD_CRITIC_MAXLEN", "34817"))   # teacher 的 max_model_len
-        # 调参(批改输出上限):多错误模式默认把上限抬到至少 1024;设为 1 时严格按 CRITIC_OPD_CRITIC_TOKENS(可低于 1024)
+        self.critic_maxlen = int(os.environ.get("CRITIC_OPD_CRITIC_MAXLEN", "34817"))   # the teacher's max_model_len
+        # Tuning (critique output cap): multi-error mode raises the cap to at least 1024 by default; set to 1 to use exactly CRITIC_OPD_CRITIC_TOKENS (may be below 1024)
         self.critic_tokens_exact = os.environ.get("CRITIC_OPD_CRITIC_TOKENS_EXACT", "0") == "1"
-        # 消融:重写由 teacher 来写(上下文、预算、采样温度与学生重写相同),其余(前缀无损失、teacher 带批改打分)不变
+        # Ablation: the teacher writes the rewrite (same context, budget, and sampling temperature as the student rewrite); everything else (no loss on the prefix, the teacher scores with the critique) is unchanged
         self.rewriter = os.environ.get("CRITIC_OPD_REWRITER", "student").strip().lower()
-        # 基线:用参考答案判分,答错或写满上限的 rollout 不计损失、也不批改(只用答对的 rollout 做 OPD)
+        # Baseline: grade against the reference answer; wrong or length-capped rollouts get no loss and no critique (OPD on correct rollouts only)
         self.drop_wrong = os.environ.get("CRITIC_OPD_DROP_WRONG", "0") == "1"
-        # 消融:批改泄露答案(不过滤泄露答案的错误,并在反馈末尾直接给出参考答案)
+        # Ablation: the critique leaks the answer (errors that leak the answer are not filtered, and the reference answer is stated at the end of the feedback)
         self.fb_answer = os.environ.get("CRITIC_OPD_FB_ANSWER", "0") == "1"
-        # k 消融:'1'/'2'/'3'/'last';不设则与原来完全一样。只在「保留出错段」下有意义。
+        # k ablation: '1'/'2'/'3'/'last'; when unset, behavior is exactly as before. Only meaningful when the erroneous segment is kept.
         self.kerr = (os.environ.get("CRITIC_OPD_KERR", "").strip().lower() or None)
-        # 前缀算损失:第一个错误所在段之前的学生 token 也按普通 OPD 训练(teacher 不看反馈);不设则与原来一样全部 mask
+        # Loss on the prefix: student tokens before the segment with the first error are also trained with plain OPD (the teacher does not see the feedback); when unset, they are all masked as before
         self.prefix_loss = os.environ.get("CRITIC_OPD_PREFIX_LOSS", "0") == "1"
-        # 消融:去掉判分这道门,答对的 rollout 也交给 critic(用中性提示词,没有真正的错误就回 NONE、按普通 OPD 训练)
+        # Ablation: remove the grading gate so correct rollouts also go to the critic (with a neutral prompt; with no genuine error it replies NONE and the rollout is trained with plain OPD)
         self.critic_all = os.environ.get("CRITIC_OPD_ALL", "0") == "1"
-        # 机制消融:CUT=end 保留整份错误解答(不按错误位置切;写满上限的仍按错误切,否则没有续写空间);
-        # FB_MODE=generic 断点不变,反馈换成不含内容的通用提示(teacher 打分时看到的也是这句)
+        # Mechanism ablations: CUT=end keeps the whole wrong solution (no cut at the error location; length-capped ones are still cut at the error, otherwise there is no room to continue);
+        # FB_MODE=generic keeps the cut point but replaces the feedback with a content-free generic message (which is also what the teacher sees when scoring)
         self.cut_mode = os.environ.get("CRITIC_OPD_CUT", "error").strip().lower()
         self.fb_mode = os.environ.get("CRITIC_OPD_FB_MODE", "critique").strip().lower()
-        # 退火(DAgger 式 beta 调度):"开始衰减步,衰减结束步,beta 下限"。答错的样本以概率 beta
-        # 走 critic 修复,否则保留它自己的 rollout 按 plain OPD 训练。不设则恒为 1(即 R4GT)。
+        # Annealing (DAgger-style beta schedule): "decay start step,decay end step,beta floor". A wrong sample goes through critic repair with probability beta;
+        # otherwise its own rollout is kept and trained with plain OPD. When unset, beta is always 1 (i.e., R4GT).
         _a = os.environ.get("CRITIC_OPD_ANNEAL", "").strip()
-        self.anneal = tuple(float(x) for x in _a.replace(":", ",").split(",")) if _a else None   # sbatch --export 里用 ":" 分隔
+        self.anneal = tuple(float(x) for x in _a.replace(":", ",").split(",")) if _a else None   # use ":" as the separator inside sbatch --export
         self.global_step = int(kwargs.get("critic_global_step", -1) or -1)
         self._grader = None
-        # 基线 OPSD-T:学生只看题目;teacher 在题目后多看一行参考答案,对整条 rollout 打分(不批改、不重写)
+        # Baseline OPSD-T: the student sees only the problem; the teacher sees an extra line with the reference answer after the problem and scores the whole rollout (no critique, no rewrite)
         self.opsd = os.environ.get("CRITIC_OPD_OPSD", "0") == "1"
-        # 基线 Critique-GRPO:每题 n_init 条初始回答加 1 个精炼槽位(ROLLOUT_N = n_init + 1)。
-        # 只有一组初始回答全错时才批改、精炼;否则精炼槽位是空行(mask 全 0,不进优势基线)
+        # Baseline Critique-GRPO: n_init initial responses plus 1 refinement slot per problem (ROLLOUT_N = n_init + 1).
+        # Critique and refinement happen only when all initial responses in a group are wrong; otherwise the refinement slot is an empty row (all-zero mask, excluded from the advantage baseline)
         self.cgrpo = os.environ.get("CRITIC_OPD_CGRPO", "0") == "1"
         self.cgrpo_n_init = int(os.environ.get("CRITIC_OPD_CGRPO_N_INIT", "7"))
         self.cgrpo_wait = float(os.environ.get("CRITIC_OPD_CGRPO_WAIT", "5400"))
@@ -506,19 +506,19 @@ class CriticOpdAgentLoop(AgentLoopBase):
 
     @staticmethod
     def _disarm_sigalrm():
-        """判分器只能在主线程里安全使用 SIGALRM;agent loop 的事件循环跑在非主线程。
+        """The grader can use SIGALRM safely only in the main thread; the agent loop's event loop runs in a non-main thread.
 
-        openmathinst_utils.time_limit 的顺序是
-            signal.setitimer(ITIMER_REAL, s)   # 进程级,任何线程都成功
-            signal.signal(SIGALRM, handler)    # 非主线程抛 ValueError
-        异常发生在 yield 之前,finally 里的"解除定时器"永远不执行 -> 10 秒后 SIGALRM
-        以默认动作(终止进程)送达。没有 traceback、没有 core,raylet 只看到
-        "Worker unexpectedly exits with a connection error code 2"。
-        math_verify 的源码里也写明了同一件事,并建议关掉它的 timeout。
+        openmathinst_utils.time_limit does, in order,
+            signal.setitimer(ITIMER_REAL, s)   # process-wide, succeeds in any thread
+            signal.signal(SIGALRM, handler)    # raises ValueError in a non-main thread
+        The exception happens before the yield, so the "disarm the timer" in finally never runs -> 10 seconds later SIGALRM
+        is delivered with its default action (terminate the process). No traceback, no core dump; the raylet only sees
+        "Worker unexpectedly exits with a connection error code 2".
+        The math_verify source code documents the same issue and recommends turning off its timeout.
 
-        这里把 SIGALRM 这一条链整体变成空操作:定时器不再真的 arm(所以永远不会有
-        信号送达),而 signal.signal(SIGALRM, ...) 不再抛异常(所以 finally 正常走完,
-        判分逻辑和离线完全一致)。其他信号不碰,Ray 自己的 SIGINT/SIGTERM 处理不受影响。
+        Here the whole SIGALRM chain becomes a no-op: the timer is never actually armed (so no signal is
+        ever delivered), and signal.signal(SIGALRM, ...) no longer raises (so finally completes normally and
+        grading behaves exactly as offline). Other signals are untouched, so Ray's own SIGINT/SIGTERM handling is unaffected.
         """
         import signal as _sg
         if getattr(_sg, "_critic_opd_disarmed", False):
@@ -556,7 +556,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
             import hashlib as _hl, json as _js
             type(self)._REFS = _js.load(open(self.ref_file))
             type(self)._sha1 = staticmethod(lambda t: _hl.sha1(t.encode()).hexdigest())
-            logger.warning("[critic_opd] 已加载参考解答 %d 条: %s", len(type(self)._REFS), self.ref_file)
+            logger.warning("[critic_opd] loaded %d reference solutions: %s", len(type(self)._REFS), self.ref_file)
         return type(self)._REFS.get(type(self)._sha1(question))
 
     def _beta(self) -> float:
@@ -570,24 +570,24 @@ class CriticOpdAgentLoop(AgentLoopBase):
         return 1.0 - (1.0 - bmin) * (self.global_step - t0) / max(t1 - t0, 1e-9)
 
     async def _verify_async(self, text, gt) -> bool:
-        """校验重写是否修对。超时 / 出错按「没修对」处理 —— 保守方向是不把可疑的重写放进训练。"""
+        """Check whether the rewrite is fixed. Timeouts / errors count as "not fixed" -- the conservative direction is to keep questionable rewrites out of training."""
         try:
             return bool(await asyncio.wait_for(_GraderPool.get().grade(text, gt, 30), timeout=240))
         except (TimeoutError, asyncio.TimeoutError, RuntimeError, OSError) as e:
-            logger.warning("[critic_opd] 校验重写失败(%s),按没修对处理", type(e).__name__)
+            logger.warning("[critic_opd] rewrite verification failed (%s), treating it as not fixed", type(e).__name__)
             return False
 
     async def _grade_async(self, text, gt):
-        """决定要不要触发 critic。超时 / 出错按「答对」处理(不触发 critic),是保守方向。"""
+        """Decide whether to trigger the critic. Timeouts / errors count as "correct" (critic not triggered), which is the conservative direction."""
         try:
             return bool(await asyncio.wait_for(_GraderPool.get().grade(text, gt, 30), timeout=240))
         except (TimeoutError, asyncio.TimeoutError, RuntimeError, OSError) as e:
-            logger.warning("[critic_opd] 判分失败(%s),按答对处理(不触发 critic)", type(e).__name__)
+            logger.warning("[critic_opd] grading failed (%s), treating it as correct (critic not triggered)", type(e).__name__)
             return True
     async def _teacher_generate(self, prompt_ids, max_tokens, temperature=0.0, top_p=1.0):
-        """让 teacher 在给定 prompt 上自由生成。teacher client 原本只用于打分
-        (max_tokens=1 + prompt_logprobs),换一组 sampling_params 就是自由生成。批改用贪心;
-        teacher 重写(消融)用与学生 rollout 相同的温度。"""
+        """Let the teacher generate freely on the given prompt. The teacher client was originally used only for scoring
+        (max_tokens=1 + prompt_logprobs); with a different set of sampling_params it generates freely. Critiques use greedy decoding;
+        teacher rewrites (ablation) use the same temperature as the student rollout."""
         tm = self.teacher_manager
         if tm is None: return None
         key = next(iter(tm.teacher_model_configs))
@@ -601,7 +601,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
             "repaired": 0, "exc": 0}
 
     def _dump(self, rec):
-        """分析用(图 2 的不匹配与可信度):CRITIC_OPD_DUMP_DIR 设了才写,每个进程一个 jsonl。"""
+        """For analysis (mismatch and reliability in Figure 2): written only if CRITIC_OPD_DUMP_DIR is set, one jsonl per process."""
         d = os.environ.get("CRITIC_OPD_DUMP_DIR")
         if not d:
             return
@@ -615,7 +615,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
         for k in kw:
             c[k] = c.get(k, 0) + 1
         if c["n"] % 64 == 0:
-            logger.warning("[critic_opd] 样本=%d 截断=%d 答对=%d 尝试=%d 解析成功=%d 修复=%d 异常=%d",
+            logger.warning("[critic_opd] samples=%d capped=%d correct=%d attempted=%d parsed=%d repaired=%d exceptions=%d",
                            c["n"], c["capped"], c["correct"], c["attempted"],
                            c["parsed"], c["repaired"], c["exc"])
             print(f"[critic_opd] tally {c}", flush=True)
@@ -625,19 +625,19 @@ class CriticOpdAgentLoop(AgentLoopBase):
         try:
             return await self._run(sampling_params, **kwargs)
         except Exception:
-            # Ray actor 猝死时异常不会冒泡,主进程只看到 ActorDiedError。先打出来再决定。
+            # When a Ray actor dies abruptly the exception does not propagate; the driver only sees ActorDiedError. Print it first, then decide.
             import traceback
             self._tally(exc=1)
-            logger.error("[critic_opd] run() 异常,降级为普通 rollout:\n%s", traceback.format_exc())
+            logger.error("[critic_opd] run() raised an exception, falling back to a plain rollout:\n%s", traceback.format_exc())
             print("[critic_opd] EXCEPTION\n" + traceback.format_exc(), flush=True)
             if self.cgrpo and int(kwargs.get("cgrpo_slot", -1)) >= self.cgrpo_n_init:
                 return await self._cgrpo_empty(list(kwargs["raw_prompt"]), {"cgrpo_exc": 1})
             return await self._plain(sampling_params, **kwargs)
 
     async def _run_opsd(self, sampling_params, messages, mm, mmk, prompt_ids, **kwargs) -> AgentLoopOutput:
-        """OPSD-T(Penaloza et al. 2026;Zhao et al. 2026,教师换成外部 teacher):
-        学生在只有题目的 prompt 上采样;teacher 打分时 user 消息末尾多一行参考答案,整条 rollout 都按它打分。
-        复用 L_fb 的打分通道:critic_fb_prompt_ids = 带答案的 prompt,n_kept = 0,n_repair = 整条回答。"""
+        """OPSD-T (Penaloza et al. 2026; Zhao et al. 2026, with the teacher replaced by an external teacher):
+        the student samples on a prompt with only the problem; when scoring, the teacher's user message ends with an extra line giving the reference answer, and the whole rollout is scored under it.
+        Reuses the L_fb scoring path: critic_fb_prompt_ids = the prompt with the answer, n_kept = 0, n_repair = the whole response."""
         metrics = {}
         with simple_timer("generate_sequences", metrics):
             out: TokenOutput = await self.server_manager.generate(
@@ -660,7 +660,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 type(self)._DBG["opsd"] = 1
                 print("[opsd] student prompt tail:", repr(self.tokenizer.decode(prompt_ids)[-200:]), flush=True)
                 print("[opsd] teacher prompt tail:", repr(self.tokenizer.decode(tids)[-260:]), flush=True)
-            # 只记指标:答对的比例;不怎么推理就直接写答案(答对且不超过 64 token);回答里提到参考答案
+            # Metrics only: fraction correct; answering directly with little reasoning (correct and at most 64 tokens); the response mentions the reference answer
             text = self.tokenizer.decode(resp, skip_special_tokens=True)
             capped = len(out.token_ids) >= rlen
             ok = (not capped) and await self._grade_async(text, gt)
@@ -678,9 +678,9 @@ class CriticOpdAgentLoop(AgentLoopBase):
             multi_modal_data=mm, mm_processor_kwargs=mmk, num_turns=2, metrics=metrics,
             extra_fields={**(out.extra_fields or {}), "critic_opd": stats, **fb})
 
-    # Critique-GRPO 的组内协调:同一题的 n_init + 1 个副本 uid 相同,且在同一个 AgentLoopWorker 里
-    # (repeat 是 interleave 的,chunk 按连续块切,每块正好是整数个组)。初始回答把结果登记在这里,
-    # 精炼槽位等组内全部登记后再决定要不要精炼。
+    # Within-group coordination for Critique-GRPO: the n_init + 1 copies of a problem share a uid and are in the same AgentLoopWorker
+    # (repeat is interleaved and chunks are contiguous, so each chunk holds a whole number of groups). Initial responses register their results here,
+    # and the refinement slot waits until the whole group has registered before deciding whether to refine.
     _CG = {}
     _DBG = {}
 
@@ -692,7 +692,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
         return e
 
     async def _cgrpo_empty(self, messages, stats, prompt_ids=None, mm=None, mmk=None) -> AgentLoopOutput:
-        """不精炼时的空行:1 个 token、mask 全 0,优势估计里不算进组均值,损失里也不出现。"""
+        """Empty row when not refining: 1 token with an all-zero mask; it is excluded from the group mean in advantage estimation and does not appear in the loss."""
         if prompt_ids is None:
             mm = await self.process_multi_modal_info(messages)
             mmk = self._get_mm_processor_kwargs(mm.get("audios"))
@@ -705,8 +705,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
             metrics={"num_preempted": -1}, extra_fields={"critic_opd": stats, "cgrpo_role": 2})
 
     async def _critique_text(self, messages, text, gt, capped):
-        """与 CriticOPD 最终版相同的批改:带参考答案的多错误批改(至多 5 条),去掉没写完的最后一条;
-        CRITIC_OPD_FB_ANSWER=1 时不过滤泄露答案的条目,并在末尾给出答案(与 critans 相同)。没有可用的条目时返回 None。"""
+        """The same critique as the final CriticOPD version: a multi-error critique with the reference answer (at most 5 entries), dropping the unfinished last entry;
+        with CRITIC_OPD_FB_ANSWER=1, entries that leak the answer are not filtered and the answer is given at the end (same as critans). Returns None when no usable entry remains."""
         segs = segment(text)
         body = "\n\n".join(f"[{i}] {seg}" for i, seg in enumerate(segs))
         cmsg = [{"role": "system", "content": CRITIC_SYS_MULTI_CAPPED if capped else CRITIC_SYS_MULTI},
@@ -737,9 +737,9 @@ class CriticOpdAgentLoop(AgentLoopBase):
         return fb
 
     async def _run_cgrpo(self, sampling_params, messages, mm, mmk, prompt_ids, **kwargs) -> AgentLoopOutput:
-        """Critique-GRPO(Zhang et al. 2025)的采样部分。槽位 0..n_init-1 是普通初始回答;
-        最后一个槽位等组内初始回答全部完成:全错时批改每一条、按官方指令新开一轮对话重答,优先选答对的那条
-        (没有就随机选一条)作为这一行的回答;否则返回空行。训练序列里只有题目和精炼回答,不含批改。"""
+        """Sampling part of Critique-GRPO (Zhang et al. 2025). Slots 0..n_init-1 are ordinary initial responses;
+        the last slot waits until all initial responses in the group are done: if all are wrong, it critiques each one, re-answers in a new conversation with the official instruction, and takes a correct refinement
+        (or a random one if none is correct) as this row's response; otherwise it returns an empty row. The training sequence contains only the problem and the refined response, not the critique."""
         uid = str(kwargs.get("uid"))
         slot = int(kwargs.get("cgrpo_slot", -1))
         n0 = self.cgrpo_n_init
@@ -763,7 +763,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 ok = (not capped) and gt is not None and await self._grade_async(text, gt)
                 rec = (text, capped, bool(ok))
             finally:
-                ent["res"][slot] = rec            # 出错也要登记,否则精炼槽位一直等
+                ent["res"][slot] = rec            # register even on error, otherwise the refinement slot keeps waiting
                 if len(ent["res"]) >= n0:
                     ent["ev"].set()
             self._tally(cgrpo_init=1, **({"correct": 1} if ok else {}), **({"capped": 1} if capped else {}))
@@ -842,7 +842,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
             extra_fields={"critic_opd": stats, "cgrpo_role": 1})
 
     async def _plain(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
-        """出错时的安全退路:就按 single_turn 的方式跑一次,不做 critic/修复。"""
+        """Safe fallback on errors: run once the single_turn way, without critic/repair."""
         messages = list(kwargs["raw_prompt"])
         mm = await self.process_multi_modal_info(messages)
         mmk = self._get_mm_processor_kwargs(mm.get("audios"))
@@ -854,12 +854,12 @@ class CriticOpdAgentLoop(AgentLoopBase):
             sampling_params=sampling_params, mm_processor_kwargs=mmk)
         rlen = int(sampling_params.get("max_tokens") or self.response_length)
         resp = out.token_ids[:rlen]
-        # 降级路径也必须带 response_logprobs:_postprocess 会对整批做
+        # The fallback path must also carry response_logprobs: _postprocess does, over the whole batch,
         #   torch.cat([input.response_logprobs for input in inputs])
-        # 同批次里只要有一个样本是 None 就会抛
-        #   "TypeError: expected Tensor as element N in argument 0, but got NoneType"。
-        # R3v2 (13940177) 就是在第 80 步撞上这个,整个 job 以 rc=1 结束
-        # (checkpoint 已先行写出,所以没丢数据,但 job 失败了)。
+        # and if even one sample in the batch is None it raises
+        #   "TypeError: expected Tensor as element N in argument 0, but got NoneType".
+        # An R3v2 run hit exactly this at step 80, and the whole job ended with rc=1
+        # (the checkpoint had already been written, so no data was lost, but the job failed).
         _lp = list(out.log_probs[:len(resp)]) if out.log_probs is not None else None
         if _lp is not None and len(_lp) < len(resp):
             _lp += [0.0] * (len(resp) - len(_lp))
@@ -895,9 +895,9 @@ class CriticOpdAgentLoop(AgentLoopBase):
         rm = kwargs.get("reward_model")
         if isinstance(rm, dict): gt = rm.get("ground_truth")
 
-        # 写完了:用 gt 精确判分,只有答错才介入(比让 teacher 判对错准确且免费)。
-        # 写不完(顶上限):没有答案可判分。原设计直接跳过;GT 思路下交给拿着正确答案的
-        # teacher 判断这条路还走不走得通,它觉得没问题会回 NONE,那就不介入。
+        # Finished: grade exactly against gt and intervene only if wrong (more accurate than having the teacher judge, and free).
+        # Unfinished (hit the length cap): there is no answer to grade. The original design skipped these; in the GT variant they go to the teacher,
+        # which holds the correct answer and judges whether this path can still succeed; if it sees no problem it replies NONE and we do not intervene.
         capped = len(out.token_ids) >= rlen
         text = self.tokenizer.decode(resp, skip_special_tokens=True)
         ready = self.enabled and self.teacher_manager is not None and gt is not None
@@ -950,7 +950,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 cids = self.tokenizer.encode(self.tokenizer.apply_chat_template(
                     cmsg, add_generation_prompt=True, tokenize=False), add_special_tokens=False)
                 if len(cids) + self.critic_max_tokens > self.critic_maxlen:
-                    cids = None                     # 加上参考解答放不下:退回不带参考的批改
+                    cids = None                     # does not fit with the reference solution: fall back to the critique without it
                     stats["critic_ref_overflow"] = 1
             stats["critic_ref"] = int(cids is not None)
             if self.ref_file:
@@ -979,15 +979,15 @@ class CriticOpdAgentLoop(AgentLoopBase):
             if ctok:
                 ctext = self.tokenizer.decode(ctok, skip_special_tokens=True)
                 if self.kerr and len(ctok) >= _cmax:
-                    # 多错误批改被截断:最后一条反馈没写完,学生会带着半句话续写 —— 去掉这一块,
-                    # 在前一个完整的错误处断开(离线:上限 1024 时 25.6% 被截断,2048 时 5.4%)
+                    # The multi-error critique was truncated: the last feedback entry is unfinished and the student would continue from half a sentence -- drop this block
+                    # and cut at the previous complete error (offline: 25.6% truncated with a 1024 cap, 5.4% with 2048)
                     ctext = drop_incomplete_tail(ctext)
                     stats["critic_truncated"] = 1
                     self._tally(kerr_trunc_drop=1)
                 if self.kerr:
                     errs = parse_critic_multi(ctext, segs)
                     n_raw = len(errs)
-                    _first_raw = errs[0][0] if errs else None   # 前缀损失的边界:批改找到的第一个错误(含被泄露过滤去掉的)
+                    _first_raw = errs[0][0] if errs else None   # boundary for the prefix loss: the first error the critique found (including ones removed by the leak filter)
                     if not self.fb_answer:
                         errs = drop_leaky(errs, gt, text)
                     if n_raw > len(errs):
@@ -1005,7 +1005,7 @@ class CriticOpdAgentLoop(AgentLoopBase):
                 if idx is not None and fb:
                     stats["critic_parsed"] = 1
                     self._tally(parsed=1)
-                    # k 消融强制保留出错段:不保留时,前 k-1 个错误留在上下文里、第 k 个却被删掉,批语说不清
+                    # The k ablation always keeps the erroneous segment: otherwise the first k-1 errors stay in the context but the k-th is deleted, and the feedback no longer makes sense
                     keep = segs[:idx] if (self.splice == "before" and not self.kerr) else segs[:idx + 1]
                     if self.cut_mode == "end" and not capped:
                         keep = segs
@@ -1021,8 +1021,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
                     kept_txt = "\n\n".join(keep)
                     _k = _tok_prefix_for_text(self.tokenizer, resp, kept_txt)
                     kept_ids = resp[:_k]
-                    # 重写的上下文必须和真正保留下来的 token 完全一致,所以用 kept_ids 解回去,
-                    # 而不是用 kept_txt(两者可能差几个空白字符)。
+                    # The rewrite context must match the tokens actually kept exactly, so decode it from kept_ids
+                    # rather than using kept_txt (the two can differ by a few whitespace characters).
                     kept_txt = self.tokenizer.decode(kept_ids, skip_special_tokens=True)
                     ctx = kept_txt + (FEEDBACK_TMPL.format(fb=fb) if self.use_feedback else "\n\n")
                     ctx_ids = self.tokenizer.encode(ctx, add_special_tokens=False)
@@ -1030,8 +1030,8 @@ class CriticOpdAgentLoop(AgentLoopBase):
                     if self.trunc:
                         budget = min(budget, self.trunc_max)
                     if self.rewriter == "teacher":
-                        # teacher 写重写段:学生采样时的 logprob 不存在,只用于监控指标(bypass_mode=false、
-                        # rollout_is/rs 关闭时 old_log_probs 由 actor 重算),填 0
+                        # The teacher writes the rewrite: no student sampling logprob exists; it is used only for monitoring metrics (with bypass_mode=false and
+                        # rollout_is/rs disabled, old_log_probs are recomputed by the actor), so fill with 0
                         with simple_timer("repair", metrics):
                             _tids = await self._teacher_generate(
                                 prompt_ids + ctx_ids, budget,
@@ -1054,15 +1054,15 @@ class CriticOpdAgentLoop(AgentLoopBase):
                         if _rep_lp is not None:
                             _rep_lp = _rep_lp[:_kc]
                         stats["repair_tokens"] = _kc
-                    # 训练序列 = 保留前缀(mask 0) + 学生重写(mask 1)。反馈不进序列。
+                    # Training sequence = kept prefix (mask 0) + student rewrite (mask 1). The feedback is not in the sequence.
                     _resp_r = (kept_ids + _rep_ids)[:rlen]
                     _npre = 0
                     if self.prefix_loss and first_idx:
                         _npre = min(_tok_prefix_for_text(self.tokenizer, resp, "\n\n".join(segs[:first_idx])), len(kept_ids))
                         stats["prefix_loss_tokens"] = _npre
                     _mask_r = ([1] * _npre + [0] * (len(kept_ids) - _npre) + [1] * len(_rep_ids))[:rlen]
-                    # 只保留修对的重写:没修对(含顶上限、没写出答案)就不返回修复结果,
-                    # 落到函数末尾,按原始 rollout 的 plain OPD 训练(num_turns=2)。
+                    # Keep only correct rewrites: if not fixed (including hitting the length cap or not writing an answer), do not return the repair result;
+                    # fall through to the end of the function and train the original rollout with plain OPD (num_turns=2).
                     _accept = True
                     if self.keep_correct:
                         _accept = await self._verify_async(
@@ -1074,22 +1074,22 @@ class CriticOpdAgentLoop(AgentLoopBase):
                         stats["repaired"] = 1
                         type(self)._CNT["repaired"] += 1
                         metrics.setdefault("num_preempted", -1)
-                        # 漏了 response_logprobs 时,_postprocess 会在
+                        # If response_logprobs is missing, _postprocess hits None in
                         #   torch.cat([input.response_logprobs for input in inputs])
-                        # 上撞到 None(未修复的样本有、修复的没有)。前缀用原始 rollout 的
-                        # logprobs(_k 是原始 token 数,所以严格对齐),重写段用它自己的。
+                        # (unrepaired samples have it, repaired ones do not). The prefix uses the original rollout's
+                        # logprobs (_k counts original tokens, so they align exactly); the rewrite uses its own.
                         _lp = None
                         if out.log_probs is not None:
                             _rlp = _rep_lp if _rep_lp is not None else [0.0] * len(_rep_ids)
                             _lp = (list(out.log_probs[:_k]) + _rlp)[:len(resp)]
-                            if len(_lp) < len(resp):          # 长度必须和 response_ids 一致
+                            if len(_lp) < len(resp):          # length must match response_ids
                                 _lp += [0.0] * (len(resp) - len(_lp))
-                        # L_fb(R4):teacher 要在"带反馈"的上下文下给修复 token 重新打分,
-                        # 学生则在"无反馈"的序列上被训练 —— 这才是把修正内化的严格形式。
-                        # 这里只把重打分所需的材料带出去,真正的 teacher 前向在
-                        # AgentLoopWorker._compute_teacher_logprobs_single_sample 里做
-                        # (那里本来就持有 teacher_server_manager 和路由键)。
-                        # 修复 token 数要按截断后的实际长度算,不能用 len(r.token_ids)。
+                        # L_fb (R4): the teacher must rescore the repair tokens in the context "with feedback",
+                        # while the student is trained on the sequence "without feedback" -- this is the strict form of internalizing the correction.
+                        # Here we only pass out what the rescoring needs; the actual teacher forward pass is done in
+                        # AgentLoopWorker._compute_teacher_logprobs_single_sample
+                        # (which already holds the teacher_server_manager and the routing key).
+                        # The number of repair tokens must use the actual length after truncation, not len(r.token_ids).
                         _fb = {}
                         if os.environ.get("CRITIC_OPD_LOSS") == "fb":
                             _nrep = max(0, len(resp) - len(kept_ids))

@@ -618,11 +618,11 @@ class AgentLoopWorker:
                 dataset_cls=self.dataset_cls,
                 data_config=DictConfigWrap(self.config.data),
                 tools=ToolListWrap(self.tools),
-                # CriticOPD 需要在 rollout 内让 teacher 在一个不同的 prompt 上自由生成(写批评),
-                # 而 teacher client 原本只挂在 worker 上。这里把它透传进 agent loop;
-                # AgentLoopBase 通过 **kwargs 吞掉,其他 agent loop 不受影响。
+                # CriticOPD needs the teacher to generate freely on a different prompt inside the rollout (to write the critique),
+                # but the teacher client was originally attached only to the worker. Here it is passed through to the agent loop;
+                # AgentLoopBase absorbs it via **kwargs, so other agent loops are unaffected.
                 teacher_manager=(self.teacher_server_manager if self.distillation_enabled else None),
-                # CriticOPD 的退火调度需要知道当前训练步;其他 agent loop 同样经 **kwargs 吞掉。
+                # CriticOPD's annealing schedule needs the current training step; other agent loops likewise absorb it via **kwargs.
                 critic_global_step=trajectory["step"],
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
@@ -1025,11 +1025,11 @@ class AgentLoopWorker:
                 mm_processor_kwargs=output.mm_processor_kwargs,
                 routing_key=routing_key,
             )
-            # --- CriticOPD L_fb(R4):用"带反馈上下文"下的 teacher 分布覆盖修复 token ---
-            # 训练序列是 prompt + kept + repair(无反馈),打分序列是
-            # prompt + kept + 反馈 + repair。两者的 repair token 完全相同,只是绝对位置不同,
-            # 所以取打分序列末尾 n_repair 行,写回训练序列里 repair 所占的那几行即可。
-            # 覆盖而不是新开一路张量:损失侧不用改,L_center 的优势中心化也互不干扰。
+            # --- CriticOPD L_fb (R4): overwrite the repair tokens with the teacher distribution "under the feedback context" ---
+            # The training sequence is prompt + kept + repair (no feedback), and the scoring sequence is
+            # prompt + kept + feedback + repair. The repair tokens are identical in both; only their absolute positions differ,
+            # so it suffices to take the last n_repair rows of the scoring sequence and write them back to the rows that repair occupies in the training sequence.
+            # Overwrite instead of adding a separate tensor: the loss side needs no change, and it does not interfere with the advantage centering of L_center.
             _fbp = output.extra_fields.get("critic_fb_prompt_ids")
             if _fbp:
                 _nk = int(output.extra_fields["critic_fb_n_kept"])
@@ -1042,7 +1042,7 @@ class AgentLoopWorker:
                         mm_processor_kwargs=output.mm_processor_kwargs,
                         routing_key=routing_key,
                     )
-                    _lo = len(prompt_ids) + _nk          # 训练序列里 repair 的起点
+                    _lo = len(prompt_ids) + _nk          # start of repair in the training sequence
                     if _lo + _nr <= teacher_logprobs.shape[0] and _flp.shape[0] >= _nr:
                         if not getattr(type(self), "_fb_dbg", False):
                             type(self)._fb_dbg = True
@@ -1055,8 +1055,8 @@ class AgentLoopWorker:
                         output.extra_fields["critic_fb_applied"] = 1
                     else:
                         output.extra_fields["critic_fb_applied"] = 0
-                        logger.warning("[critic_opd] L_fb 形状对不上,该样本退回无反馈 teacher 分布")
-                # 这几个只是传材料用的,不能进 batch(长度各不相同,collate 会炸)
+                        logger.warning("[critic_opd] L_fb shape mismatch; this sample falls back to the no-feedback teacher distribution")
+                # These fields only carry inputs and must not enter the batch (their lengths differ, so collate would crash)
                 for _k in ("critic_fb_prompt_ids", "critic_fb_n_kept", "critic_fb_n_repair"):
                     output.extra_fields.pop(_k, None)
 

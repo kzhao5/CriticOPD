@@ -26,14 +26,14 @@ TOP_P=${TOP_P:-1.0}
 GPU_MEM=${GPU_MEM:-0.90}
 TP=${TP:-1}
 DP_SIZE=${DP_SIZE:-4}
-# 跨 job 切分: 本 job 跑全局 shard [SHARD_BASE, SHARD_BASE+DP_SIZE) / NUM_SHARDS_TOTAL
+# Cross-job sharding: this job runs global shards [SHARD_BASE, SHARD_BASE+DP_SIZE) / NUM_SHARDS_TOTAL
 NUM_SHARDS_TOTAL=${NUM_SHARDS_TOTAL:-${DP_SIZE}}
 SHARD_BASE=${SHARD_BASE:-0}
 SEED=${SEED:-42}
 
 OUT_DIR="${OUT_ROOT}/${RUN_NAME}/step_${STEP}"
-# 按 benchmark 分开:同一模型的多个 benchmark 并行跑时,共用一个 shard 日志会互相覆盖,
-# 后完成的那个会抹掉先失败那个的报错。
+# Split by benchmark: when several benchmarks of the same model run in parallel, a shared shard log gets overwritten,
+# and the run that finishes later erases the error of the one that failed first.
 LOG_DIR="${OUT_ROOT}/job_logs/${RUN_NAME}_step_${STEP}_${BENCHES//,/_}"
 RESULTS="${OUT_ROOT}/results.tsv"
 mkdir -p "${OUT_DIR}" "${LOG_DIR}"
@@ -81,13 +81,13 @@ if [[ "${all_done}" == "1" ]]; then
   echo "[skip] aggregate summaries already exist in ${OUT_DIR}: ${BENCHES}"
 else
   cd "${VERL_OPD_DIR}"
-  # 尊重 Slurm 实际分配的 GPU(无 cgroup 隔离时硬编码 0..DP-1 会撞别人的卡)
-  # Slurm 开了 cgroup 设备隔离时, 进程只看得到本作业分配的卡且已重编号为 0..N-1, 而
-  # SLURM_JOB_GPUS 给的是节点上的物理编号(例如分到物理 1,2 -> 进程内其实是 0,1)。
-  # 拿物理编号去 export CUDA_VISIBLE_DEVICES 会选到不存在的卡, vLLM 报
-  # "CUDA unknown error ... changing env variable CUDA_VISIBLE_DEVICES after program start"。
-  # 所以只要 CUDA_VISIBLE_DEVICES 已被 Slurm 设好, 就直接用它的逻辑索引, 且不做
-  # nvidia-smi 空闲重排(nvidia-smi 报的是物理编号, 混用会再次错位; 分配到的卡本就独占)。
+  # Respect the GPUs actually allocated by Slurm (without cgroup isolation, hardcoding 0..DP-1 would collide with other users' GPUs)
+  # When Slurm enables cgroup device isolation, the process only sees the GPUs allocated to this job, renumbered as 0..N-1, while
+  # SLURM_JOB_GPUS gives the physical indices on the node (e.g. physical 1,2 -> actually 0,1 inside the process).
+  # Exporting the physical indices as CUDA_VISIBLE_DEVICES selects nonexistent GPUs, and vLLM reports
+  # "CUDA unknown error ... changing env variable CUDA_VISIBLE_DEVICES after program start".
+  # So whenever CUDA_VISIBLE_DEVICES has already been set by Slurm, use its logical indices directly and skip
+  # the nvidia-smi idle-based reordering (nvidia-smi reports physical indices, so mixing them misaligns again; the allocated GPUs are exclusive anyway).
   if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
     IFS="," read -r -a _CVD_LIST <<< "${CUDA_VISIBLE_DEVICES}"
     SLURM_GPU_LIST=(); for _i in $(seq 0 $(( ${#_CVD_LIST[@]} - 1 ))); do SLURM_GPU_LIST+=("${_i}"); done
@@ -97,17 +97,17 @@ else
     if [[ -n "${_GPU_ALLOC}" ]]; then IFS="," read -r -a SLURM_GPU_LIST <<< "${_GPU_ALLOC}"; else SLURM_GPU_LIST=(); fi
   fi
   echo "[gpu-alloc] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-} SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-} SLURM_STEP_GPUS=${SLURM_STEP_GPUS:-} -> list=(${SLURM_GPU_LIST[*]:-<none, fallback 0..N>})"
-  # 运行时按显存挑真正空闲的卡(分配到的卡可能被残留/他人进程占满): Slurm 指定的优先, 再补任意空闲可见卡; 各 shard 不重叠
+  # At runtime, pick truly idle GPUs by memory usage (allocated GPUs may be filled by leftover or other users' processes): Slurm-assigned GPUs first, then any other idle visible GPUs; shards do not overlap
   _VIS_FREE=(); while IFS= read -r _g; do [[ -n "$_g" ]] && _VIS_FREE+=("$_g"); done < <(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits 2>/dev/null | awk -F', *' '$2+0<2048{print $1}')
   FREE_GPUS=()
   if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
-    FREE_GPUS=("${SLURM_GPU_LIST[@]}")          # 逻辑索引, 与可见集合一一对应
+    FREE_GPUS=("${SLURM_GPU_LIST[@]}")          # logical indices, one-to-one with the visible set
   else
     if (( ${#SLURM_GPU_LIST[@]} )); then for _g in "${SLURM_GPU_LIST[@]}"; do for _f in "${_VIS_FREE[@]}"; do [[ "$_f" == "$_g" ]] && FREE_GPUS+=("$_g"); done; done; fi
     for _f in "${_VIS_FREE[@]}"; do [[ " ${FREE_GPUS[*]:-} " == *" $_f "* ]] || FREE_GPUS+=("$_f"); done
   fi
   echo "[gpu-free] visible-free=(${_VIS_FREE[*]:-}) -> use-order=(${FREE_GPUS[*]:-<none: fallback logical idx>})"
-  if (( ${#FREE_GPUS[@]} < DP_SIZE * TP )); then echo "[gpu-free] WARN: 空闲卡 ${#FREE_GPUS[@]} < 需要 $((DP_SIZE*TP)), 不足部分回退逻辑索引" >&2; fi
+  if (( ${#FREE_GPUS[@]} < DP_SIZE * TP )); then echo "[gpu-free] WARN: idle GPUs ${#FREE_GPUS[@]} < required $((DP_SIZE*TP)); falling back to logical indices for the shortfall" >&2; fi
   pids=()
   for shard_id in $(seq 0 $((DP_SIZE - 1))); do
     if (( ${#SLURM_GPU_LIST[@]} > shard_id )); then SHARD_GPU="${SLURM_GPU_LIST[$shard_id]}"; else SHARD_GPU="${shard_id}"; fi
@@ -117,7 +117,7 @@ else
       gpu_list=""
       for off in $(seq 0 $((TP - 1))); do
         gpu=$((gpu_start + off))
-        # 逻辑卡 -> Slurm 实际分配的物理卡
+        # logical GPU -> physical GPU actually allocated by Slurm
         if (( ${#FREE_GPUS[@]} > gpu )); then gpu="${FREE_GPUS[$gpu]}"; fi
         if [[ -z "${gpu_list}" ]]; then
           gpu_list="${gpu}"
@@ -163,7 +163,7 @@ else
   fi
 fi
 
-if [[ "${NUM_SHARDS_TOTAL}" != "${DP_SIZE}" ]]; then echo "[split] 本 job 只跑 shard ${SHARD_BASE}..$((SHARD_BASE+DP_SIZE-1))/${NUM_SHARDS_TOTAL}, 跳过聚合(读取器走 shard_*/)"; exit 0; fi
+if [[ "${NUM_SHARDS_TOTAL}" != "${DP_SIZE}" ]]; then echo "[split] this job only runs shards ${SHARD_BASE}..$((SHARD_BASE+DP_SIZE-1))/${NUM_SHARDS_TOTAL}; skipping aggregation (readers use shard_*/)"; exit 0; fi
 python3 - "${RUN_NAME}" "${STEP}" "${MODEL}" "${OUT_DIR}" "${RESULTS}" "${BENCHES}" "${DP_SIZE}" <<'PY'
 import json
 import sys

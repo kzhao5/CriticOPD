@@ -371,10 +371,10 @@ def compute_grpo_vectorized_outcome_advantage(
     config: Optional[AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Vectorized GRPO（outcome-only）:
+    Vectorized GRPO (outcome-only):
       For each group g:
       a_i = \\frac{r_i - \\mu_g}{\\sigma_g} (or without dividing by \\sigma_g),
-      then broadcast the scalar across the token dimension (multiplied by response_mask).。
+      then broadcast the scalar across the token dimension (multiplied by response_mask).
     """
     with torch.no_grad():
         scores = token_level_rewards.sum(dim=-1)
@@ -1434,7 +1434,7 @@ def compute_policy_loss_critique_grpo(
         "actor/cgrpo_refine_tok_frac": (refine.sum() / response_mask.sum().clamp(min=1)).detach().item(),
         "actor/cgrpo_on_ratio_mean": (verl_F.masked_mean(ratio, on_mask).detach().item() if on_mask.any() else 1.0),
         "actor/cgrpo_off_ratio_mean": (verl_F.masked_mean(off_ratio, refine).detach().item() if refine.any() else 0.0),
-        # 对照:同一个 f(p) 在初始回答 token 上的均值;两者差很多说明精炼对学生是离策略的
+        # For comparison: the mean of the same f(p) over initial-answer tokens; a large gap between the two means the refinement is off-policy for the student
         "actor/cgrpo_on_f_mean": (verl_F.masked_mean(off_ratio, on_mask).detach().item() if on_mask.any() else 0.0),
         "actor/cgrpo_refine_logp_mean": (verl_F.masked_mean(log_prob, refine).detach().item() if refine.any() else 0.0),
         "actor/cgrpo_on_logp_mean": (verl_F.masked_mean(log_prob, on_mask).detach().item() if on_mask.any() else 0.0),

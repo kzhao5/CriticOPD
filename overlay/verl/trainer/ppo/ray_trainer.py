@@ -1869,9 +1869,9 @@ class RayPPOTrainer:
                     rollout_n = self.config.actor_rollout_ref.rollout.n
                     gen_batch_output = gen_batch.repeat(repeat_times=rollout_n, interleave=True)
                     if os.environ.get("CRITIC_OPD_CGRPO", "0") == "1":
-                        # Critique-GRPO:组内槽位号。前 n_init 个是初始回答,最后一个是精炼槽位(见 critic_opd_agent_loop)
+                        # Critique-GRPO: slot index within the group. The first n_init slots are initial answers and the last one is the refinement slot (see critic_opd_agent_loop)
                         _n_init = int(os.environ.get("CRITIC_OPD_CGRPO_N_INIT", "7"))
-                        assert rollout_n == _n_init + 1, f"Critique-GRPO 需要 rollout.n = n_init + 1,现在 {rollout_n} vs {_n_init}"
+                        assert rollout_n == _n_init + 1, f"Critique-GRPO requires rollout.n = n_init + 1, got {rollout_n} vs {_n_init}"
                         gen_batch_output.non_tensor_batch["cgrpo_slot"] = np.tile(np.arange(rollout_n), len(gen_batch))
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
@@ -2109,17 +2109,17 @@ class RayPPOTrainer:
                                     else torch.zeros_like(_steer)
                                 metrics.update({f"steer/{_k}": _v for _k, _v in _sst.items()})
 
-                        # --- CriticOPD L_center:标出修复 token,交给 loss 做优势中心化 ---
-                        # critic_opd_agent_loop 给被修复的样本打 num_turns=4,纯 on-policy rollout 打 2。
-                        # 被修复样本的 response_mask 在保留前缀上是 0、只在修复段上是 1,所以"该样本参与
-                        # 训练的 token"恰好就是"修复 token",不需要额外的 token 级标注。
-                        # 指标对 center 和 fb 都统计;但 critic_repair_mask 只给 center ——
-                        # losses.py 见到它就做优势中心化,给 fb arm 写上它等于偷偷叠加 L_center,
-                        # R4 系列就不再是 R4。
+                        # --- CriticOPD L_center: mark the repair tokens and pass them to the loss for advantage centering ---
+                        # critic_opd_agent_loop sets num_turns=4 for repaired samples and 2 for pure on-policy rollouts.
+                        # For a repaired sample, response_mask is 0 on the kept prefix and 1 only on the repair segment, so "the tokens of this sample
+                        # that are trained on" are exactly "the repair tokens"; no extra token-level annotation is needed.
+                        # Metrics are logged for both center and fb, but critic_repair_mask is set only for center:
+                        # losses.py applies advantage centering whenever it sees this mask, so setting it for the fb arm would silently add L_center,
+                        # and the R4 series would no longer be R4.
                         _closs = os.environ.get("CRITIC_OPD_LOSS", "clean")
-                        if _closs in ("center", "fb", "clean"):   # clean 只记指标(critic_repair_mask 仍只给 center)
-                            # 自报告:静默失效(拿不到 __num_turns__ -> 退化成 L_clean 却标着 center)
-                            # 是最坏的失败模式,所以这里无论成败都往 metrics 里写一个数。
+                        if _closs in ("center", "fb", "clean"):   # clean only logs metrics (critic_repair_mask is still set only for center)
+                            # Self-reporting: a silent failure (missing __num_turns__ -> degrades to L_clean while still labeled center)
+                            # is the worst failure mode, so a value is always written to metrics here, whether or not this succeeds.
                             if "__num_turns__" not in batch.non_tensor_batch:
                                 metrics["critic_opd/missing_num_turns"] = 1.0
                             else:
@@ -2151,11 +2151,11 @@ class RayPPOTrainer:
                         self.checkpoint_manager.update_weights(self.global_steps)
                     else:
                         if os.environ.get("CRITIC_OPD_CGRPO", "0") == "1":
-                            # Critique-GRPO:精炼回答的 token 交给损失用 shaping 比率;空的精炼槽位 mask 本来就全 0
+                            # Critique-GRPO: tokens of refined answers are passed to the loss to use the shaping ratio; the mask of an empty refinement slot is already all 0
                             _role = batch.non_tensor_batch.get("cgrpo_role")
                             _rm4 = batch.batch["response_mask"]
                             if _role is None or _rm4.is_nested:
-                                raise RuntimeError("Critique-GRPO: 缺 cgrpo_role,或 response_mask 是 nested,精炼 mask 建不起来")
+                                raise RuntimeError("Critique-GRPO: cgrpo_role is missing or response_mask is nested; cannot build the refinement mask")
                             _role = np.array([int(r) if r is not None else 0 for r in _role])
                             _isref = torch.as_tensor(_role == 1, device=_rm4.device).unsqueeze(-1)
                             batch.batch["critique_refine_mask"] = (_isref & _rm4.bool()).to(_rm4.dtype)
@@ -2169,7 +2169,7 @@ class RayPPOTrainer:
                                 batch.batch["critique_refine_mask"].sum().item() / max(int(_rm4.sum().item()), 1))
                         if os.environ.get("CRITIC_OPD_DUMP_BATCH"):
                             try:
-                                # 分析用(图 2):每条训练序列的回答 token、参与损失的位置、老师写的位置(RelayOPD)
+                                # For analysis (Figure 2): for each training sequence, the response tokens, the positions that enter the loss, and the positions written by the teacher (RelayOPD)
                                 _rm5 = batch.batch["response_mask"]
                                 _res = batch.batch["responses"]
                                 _tm = batch.batch.get("relay_teacher_mask", None) if hasattr(batch.batch, "get") else None
@@ -2191,7 +2191,7 @@ class RayPPOTrainer:
                                     })
                                 torch.save(_rows, f"{os.environ['CRITIC_OPD_DUMP_BATCH']}_step{self.global_steps}.pt")
                             except Exception as _e:
-                                print(f"[dump] 转储失败: {_e!r}", flush=True)
+                                print(f"[dump] dump failed: {_e!r}", flush=True)
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)

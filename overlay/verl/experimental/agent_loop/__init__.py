@@ -21,9 +21,9 @@ from .agent_loop import (
 )
 from .single_turn_agent_loop import SingleTurnAgentLoop
 from .tool_agent_loop import ToolAgentLoop
-# CriticOPD:@register 只在模块被导入时才执行。AgentLoopWorker 不做自动扫描,只依赖这里的
-# 显式导入,所以不加这一行就会在 generate_sequences 里抛
-# "Agent loop critic_opd_agent not registered"(job 13937168 就是这么死的)。
+# CriticOPD: @register only runs when the module is imported. AgentLoopWorker does no automatic scanning and relies only on the
+# explicit import here, so without this line generate_sequences raises
+# "Agent loop critic_opd_agent not registered" (an earlier training job failed exactly this way).
 from .critic_opd_agent_loop import CriticOpdAgentLoop
 
 _ = [SingleTurnAgentLoop, ToolAgentLoop, CriticOpdAgentLoop]
