@@ -8,7 +8,7 @@ Kaixiang Zhao<sup>1</sup>, Tianrun Yu<sup>1</sup>, Shangzhe Li<sup>2</sup>, Yuxi
 </p>
 
 [![Project Page](https://img.shields.io/badge/Project-Page-2c6a44.svg)](https://kzhao5.github.io/CriticOPD-website/)
-[![arXiv](https://img.shields.io/badge/arXiv-coming%20soon-b31b1b.svg)](#-news)
+[![arXiv](https://img.shields.io/badge/arXiv-2610.20572-b31b1b.svg)](https://arxiv.org/abs/2610.20572)
 [![Python](https://img.shields.io/badge/Python-3.12-3776ab.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.11-ee4c2c.svg)](https://pytorch.org/)
 [![Framework](https://img.shields.io/badge/Built%20on-verl%20%7C%20Relay--OPD-6f42c1.svg)](https://github.com/zju-real/Relay-OPD)
@@ -46,7 +46,7 @@ The critique serves as privileged information: every supervised token is written
 
 - **[2026-10]** [Project page](https://kzhao5.github.io/CriticOPD-website/) online.
 - **[2026-10]** Code release: CriticOPD, the baselines of the paper, and the evaluation protocol.
-- **[2026-10]** The paper will appear on arXiv soon.
+- **[2026-10]** The paper is on [arXiv](https://arxiv.org/abs/2610.20572).
 
 ## 📊 Results
 
@@ -222,7 +222,7 @@ If you find this work useful, please cite:
 @article{zhao2026recovering,
   title   = {Recovering Reliable Supervision via Critique-Guided On-Policy Distillation},
   author  = {Zhao, Kaixiang and Yu, Tianrun and Li, Shangzhe and Yang, Yuxiao and Hughes, Amanda and Zhang, Weitong and Killian, Taylor W.},
-  journal = {arXiv preprint},
+  journal = {arXiv preprint arXiv:2610.20572},
   year    = {2026}
 }
 ```
